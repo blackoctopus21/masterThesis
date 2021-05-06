@@ -55,6 +55,14 @@ class Objects:
         self.fwhm = Value(**self.fwhm)
         self.speed = Value(**self.speed)
 
+@dataclass
+class Bias:
+    value: int
+    columns: int
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
 
 @dataclass
 class Configuration:
@@ -67,12 +75,14 @@ class Configuration:
     plot: bool
     saveImages: bool
     Noise: Noise
+    Bias: Bias
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
         self.Stars = Stars(**self.Stars)
         self.Objects = Objects(**self.Objects)
         self.Noise = Noise(**self.Noise)
+        self.Bias = Bias(**self.Bias)
 
 
 def loadConfig(filename="config.yml"):

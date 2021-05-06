@@ -47,3 +47,7 @@ Noise:
     mean: 10
     std: 7
     enable: true
+Bias:
+  value: 50
+  columns: 25
+  enable: true

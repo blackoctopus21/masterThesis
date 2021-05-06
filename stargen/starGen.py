@@ -62,6 +62,10 @@ class StarGenerator:
             for s in stars:
                 self.drawStarGaus(s, stars_image)
 
+            # deformations that should be consistent in images
+            self.addBias(stars_image)
+
+            # TODO add blooming, hot pixels, shutter issues,...
             images = []
             for i in range(8):
                 image = stars_image.copy()
@@ -179,6 +183,30 @@ class StarGenerator:
             noise_image = np.abs(
                 self.config.Noise.std * np.random.randn(self.config.SizeX, self.config.SizeY) + self.config.Noise.mean)
             image += noise_image
+
+    def addBias(self, image):
+        if self.config.Bias.enable:
+            value = self.config.Bias.value
+            numberOfColumns = self.config.Bias.columns
+            shape = image.shape
+
+            bias_image = np.zeros_like(image) + value
+
+            # We want a random-looking variation in the bias, but unlike the readnoise the bias should
+            # *not* change from image to image, so we make sure to always generate the same "random" numbers.
+            # TODO figure out the seed
+            rng = np.random.RandomState(seed=8392)
+            columns = rng.randint(0, shape[1], size=numberOfColumns)
+
+            # This adds a little random-looking noise into the data.
+            columnPattern = rng.randint(0, value, size=shape[0])
+
+            # Make the chosen columns a little brighter than the rest
+            for c in columns:
+                bias_image[:, c] = value + columnPattern
+
+            image += bias_image
+
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
