@@ -73,14 +73,14 @@ class StarGenerator:
 
                 images.append(image)
 
-            self.saveSeriesToFile(images, objects)
+            self.saveSeriesToFile(images, objects,t)
 
             if self.config.plot:
                 self.plotSeries(images)
 
     def saveTSV(self, stars, objects, t):
 
-        directory = os.path.join(self.config.dataFile, f'{t}')
+        directory = os.path.join(self.config.dataFile, f'tsv{t}')
         os.mkdir(directory)
 
         for i in range(8):
@@ -100,8 +100,8 @@ class StarGenerator:
                 axs[r, c].set_title(f'image {4 * r + c}')
         plt.show()
 
-    def saveSeriesToFile(self, images, objects):
-        directory = os.path.join(self.config.dataFile, f'{int(time.time())}')
+    def saveSeriesToFile(self, images, objects,t):
+        directory = os.path.join(self.config.dataFile, f'fits{t}')
         os.mkdir(directory)
         for i in range(8):
             name = f'{directory}/{i}'
