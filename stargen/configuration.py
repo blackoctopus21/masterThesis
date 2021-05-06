@@ -65,6 +65,17 @@ class Bias:
         self.__dict__.update(entries)
 
 @dataclass
+class HotPixel:
+    count: int
+    brightness: Value
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+        self.brightness = Value(**self.brightness)
+
+
+@dataclass
 class Configuration:
     numberOfSeries : int
     SizeX: int
@@ -76,6 +87,7 @@ class Configuration:
     saveImages: bool
     Noise: Noise
     Bias: Bias
+    HotPixel: HotPixel
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -83,6 +95,7 @@ class Configuration:
         self.Objects = Objects(**self.Objects)
         self.Noise = Noise(**self.Noise)
         self.Bias = Bias(**self.Bias)
+        self.HotPixel = HotPixel(**self.HotPixel)
 
 
 def loadConfig(filename="config.yml"):

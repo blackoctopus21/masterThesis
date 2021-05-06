@@ -47,7 +47,18 @@ Noise:
     mean: 10
     std: 7
     enable: true
+
 Bias:
-  value: 50
-  columns: 25
-  enable: true
+    value: 20
+    columns: 25
+    enable: true
+
+HotPixel:
+    count: 10
+
+    brightness:
+      min: 10000
+      max: 20000
+      random: uniform
+
+    enable: true

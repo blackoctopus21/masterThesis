@@ -62,10 +62,8 @@ class StarGenerator:
             for s in stars:
                 self.drawStarGaus(s, stars_image)
 
-            # deformations that should be consistent in images
-            self.addBias(stars_image)
 
-            # TODO add blooming, hot pixels, shutter issues,...
+            # TODO add blooming, shutter issues,...
             images = []
             for i in range(8):
                 image = stars_image.copy()
@@ -75,7 +73,11 @@ class StarGenerator:
                     self.drawStarGaus(obj, image)
                     obj.x, obj.y = obj.positions[(i + 1) % 8][0], obj.positions[(i + 1) % 8][1]
 
+                self.addBias(image)
+                self.addHotPixels(image)
+
                 images.append(image)
+
 
             self.saveSeriesToFile(images, objects,t)
 
@@ -207,6 +209,17 @@ class StarGenerator:
 
             image += bias_image
 
+    def addHotPixels(self, image):
+        if self.config.HotPixel.enable:
+            # Like with the bias image, we want the hot pixels to always be in the same places
+            # (at least for the same image size) but also want them to appear to be randomly
+            # distributed. So we set a random number seed to ensure we always get the same thing.
+            rng = np.random.RandomState(16201649)
+            hotX = rng.randint(0, image.shape[1], size=self.config.HotPixel.count)
+            hotY = rng.randint(0, image.shape[0], size=self.config.HotPixel.count)
+
+            for i in range(self.config.HotPixel.count):
+                image[tuple([hotY[i], hotX[i]])] = self.config.HotPixel.brightness.value()
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
