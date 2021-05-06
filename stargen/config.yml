@@ -1,0 +1,49 @@
+numberOfSeries: 1
+SizeX: 1024
+SizeY: 1024
+dataFile: C:\Users\user\Dropbox\diplomovka\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  # 
+plot: True
+saveImages: True
+
+Stars:
+  count:
+    min: 10
+    max: 50
+    random: uniform
+
+  brightness:
+    min: 1000
+    max: 10000
+    random: uniform
+
+  fwhm:
+    min: 5
+    max: 12
+    random: uniform
+
+Objects:
+  count:
+    min: 1
+    max: 1
+    random: uniform
+
+  brightness:
+    min: 1000
+    max: 5000
+    random: normal
+
+  fwhm:
+    min: 3
+    max: 8
+    random: uniform
+
+  # speed of ibject traveled % of the screen in 8 frames
+  speed:
+    min: 30
+    max: 100
+    random: uniform
+
+Noise:
+    mean: 10
+    std: 7
+    enable: true
