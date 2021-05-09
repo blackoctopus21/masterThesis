@@ -1,4 +1,4 @@
 # Algoritmus na segmentáciu astronomických snímok so špecifickými stopami
-Diplomová práca 
-Linda Jurkasová
+<h3> Diplomová práca</h3> <br>
+
 
