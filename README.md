@@ -1,2 +1,3 @@
-# Diplomová práca
-Názov: Algoritmus na segmentáciu astronomických snímok so špecifickými stopami
+# Diplomová práca: Algoritmus na segmentáciu astronomických snímok so špecifickými stopami
+Linda Jurkasová
+
