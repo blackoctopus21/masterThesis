@@ -2,6 +2,15 @@ from dataclasses import dataclass
 import random
 import yaml
 
+@dataclass
+class Streak:
+    length: int
+    alpha: int
+    sigma: int
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
 
 @dataclass
 class Value:
@@ -33,12 +42,15 @@ class Stars:
     count: Value
     brightness: Value
     fwhm: Value
+    streak: Streak
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
         self.count = Value(**self.count)
         self.brightness = Value(**self.brightness)
         self.fwhm = Value(**self.fwhm)
+        self.streak = Streak(**self.streak)
+
 
 
 @dataclass

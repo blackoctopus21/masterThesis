@@ -21,6 +21,12 @@ Stars:
     max: 12
     random: uniform
 
+  streak:
+    enable: true
+    length:  10
+    alpha: 25
+    sigma: 2
+
 Objects:
   count:
     min: 1
@@ -57,8 +63,8 @@ HotPixel:
     count: 10
 
     brightness:
-      min: 10000
-      max: 20000
+      min: 5000
+      max: 10000
       random: uniform
 
-    enable: true
+    enable: false
