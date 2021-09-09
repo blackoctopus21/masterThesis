@@ -1,4 +1,5 @@
 numberOfSeries: 1
+numberOfFramesInOneSeries: 5
 SizeX: 1024
 SizeY: 1024
 dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  #

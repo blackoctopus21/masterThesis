@@ -89,7 +89,8 @@ class HotPixel:
 
 @dataclass
 class Configuration:
-    numberOfSeries : int
+    numberOfSeries: int
+    numberOfFramesInOneSeries: int
     SizeX: int
     SizeY: int
     Stars: Stars

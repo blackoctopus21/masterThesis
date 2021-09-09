@@ -65,18 +65,15 @@ class StarGenerator:
                 else:
                     self.drawStarGaus(s, stars_image)
 
-            # TODO add blooming, shutter issues,...
             images = []
-            for i in range(8):
+            for i in range(self.config.numberOfFramesInOneSeries):
                 image = stars_image.copy()
                 self.addNoise(image)
 
                 for obj in objects:
                     self.drawStarGaus(obj, image)
-                    obj.x, obj.y = obj.positions[(i + 1) % 8][0], obj.positions[(i + 1) % 8][1]
-
-                self.addBias(image)
-                self.addHotPixels(image)
+                    obj.x, obj.y = obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0], \
+                                   obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1]
 
                 images.append(image)
 
@@ -90,27 +87,41 @@ class StarGenerator:
         directory = os.path.join(self.config.dataFile, f'tsv{t}')
         os.mkdir(directory)
 
-        for i in range(8):
+        for i in range(self.config.numberOfFramesInOneSeries):
             data = [s.toTSV() for s in stars] + [o.toTSV(i) for o in objects]
             df = pd.DataFrame(np.array(data), columns=["x", "y", "brightness", "fwhm", "is_object"])
             df.to_csv(f"{directory}/data_{i + 1:04d}.tsv", index=False, sep='\t')
 
-        data = [[i] + o.toTSV(i) for o in objects for i in range(8)]
+        data = [[i] + o.toTSV(i) for o in objects for i in range(self.config.numberOfFramesInOneSeries)]
         df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
         df.to_csv(f"{directory}/objects.tsv", index=False)
 
     def plotSeries(self, images):
-        fig, axs = plt.subplots(2, 4)
-        for r in range(2):
+        numberOfRows = self.config.numberOfFramesInOneSeries // 4
+        if self.config.numberOfFramesInOneSeries % 4 != 0:
+            numberOfRows += 1
+
+        fig, axs = plt.subplots(numberOfRows, 4)
+        for r in range(numberOfRows):
             for c in range(4):
-                axs[r, c].imshow(images[4 * r + c], cmap='gray', vmin=0, vmax=50)
-                axs[r, c].set_title(f'image {4 * r + c}')
+                index = 4 * r + c
+                if index < len(images):
+                    self.axis(r, c, axs).imshow(images[index], cmap='gray', vmin=0, vmax=50)
+                    self.axis(r, c, axs).set_title(f'image {index}')
+                else:
+                    self.axis(r, c, axs).set_axis_off()
         plt.show()
+
+    def axis(self, r, c, axis):
+        if axis.ndim > 1:
+            return axis[r, c]
+        else:
+            return axis[c]
 
     def saveSeriesToFile(self, images, objects, t):
         directory = os.path.join(self.config.dataFile, f'fits{t}')
         os.mkdir(directory)
-        for i in range(8):
+        for i in range(self.config.numberOfFramesInOneSeries):
             name = f'{directory}/{i}'
             self.saveImgToFits(images[i], name)
 
@@ -156,8 +167,9 @@ class StarGenerator:
             edge_point = (1024, rr(self.config.SizeY))
         speed = self.config.Objects.speed.value() / 100
 
-        step_x, step_y = ((edge_point[0] - x) * speed // 8, (edge_point[1] - y) * speed // 8)
-        points = [(x + i * step_x, y + i * step_y) for i in range(8)]
+        step_x, step_y = ((edge_point[0] - x) * speed // self.config.numberOfFramesInOneSeries,
+                          (edge_point[1] - y) * speed // self.config.numberOfFramesInOneSeries)
+        points = [(x + i * step_x, y + i * step_y) for i in range(self.config.numberOfFramesInOneSeries)]
 
         return points
 
