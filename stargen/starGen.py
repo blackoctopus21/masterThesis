@@ -51,7 +51,7 @@ class StarGenerator:
 
         t = int(time.time())
 
-        objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
+        objects = self.generateObjects()
         stars = self.generateStars()
 
         self.saveTSV(stars, objects, t)
@@ -135,6 +135,12 @@ class StarGenerator:
 
         return stars
 
+    def generateObjects(self):
+
+        objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
+
+        return objects
+
     def randomStar(self):
         x = rr(self.config.SizeX)
         y = rr(self.config.SizeY)
@@ -160,11 +166,11 @@ class StarGenerator:
         if p >= 0.75:
             edge_point = (rr(self.config.SizeX), 0)
         elif p >= 0.5:
-            edge_point = (rr(self.config.SizeX), 1024)
+            edge_point = (rr(self.config.SizeX), self.config.SizeY)
         elif p >= 0.25:
             edge_point = (0, rr(self.config.SizeY))
         else:
-            edge_point = (1024, rr(self.config.SizeY))
+            edge_point = (self.config.SizeX, rr(self.config.SizeY))
         speed = self.config.Objects.speed.value() / 100
 
         step_x, step_y = ((edge_point[0] - x) * speed // self.config.numberOfFramesInOneSeries,
@@ -331,10 +337,10 @@ class StarGenerator:
             # We want a random-looking variation in the bias, but unlike the readnoise the bias should
             # *not* change from image to image, so we make sure to always generate the same "random" numbers.
             rng = np.random.RandomState(seed=8392)
-            columns = rng.randint(0, shape[1], size=numberOfColumns)
+            columns = rng.randint(0, self.config.SizeY, size=numberOfColumns)
 
             # This adds a little random-looking noise into the data.
-            columnPattern = rng.randint(0, value, size=shape[0])
+            columnPattern = rng.randint(0, value, size=self.config.SizeX)
 
             # Make the chosen columns a little brighter than the rest
             for c in columns:
@@ -348,11 +354,11 @@ class StarGenerator:
             # (at least for the same image size) but also want them to appear to be randomly
             # distributed. So we set a random number seed to ensure we always get the same thing.
             rng = np.random.RandomState(16201649)
-            hotX = rng.randint(0, image.shape[1], size=self.config.HotPixel.count)
-            hotY = rng.randint(0, image.shape[0], size=self.config.HotPixel.count)
+            hotX = rng.randint(0, self.config.SizeX - 1, size=self.config.HotPixel.count)
+            hotY = rng.randint(0, self.config.SizeY - 1, size=self.config.HotPixel.count)
 
             for i in range(self.config.HotPixel.count):
-                image[tuple([hotY[i], hotX[i]])] = self.config.HotPixel.brightness.value()
+                image[tuple([hotX[i], hotY[i]])] = self.config.HotPixel.brightness.value()
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
