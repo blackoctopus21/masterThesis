@@ -16,11 +16,22 @@ from tqdm import tqdm
 
 
 @dataclass
+class BoundingBox:
+    minX: int
+    maxX: int
+    minY: int
+    maxY: int
+
+
+@dataclass
 class Star:
     x: int
     y: int
     brightness: int
     fwhm: int
+    length: int
+    alpha: int
+    sigma: int
 
     def toTSV(self):
         return [self.x, self.y, self.brightness, self.fwhm, 0]
@@ -33,6 +44,9 @@ class Object:
     brightness: int
     fwhm: int
     positions: list
+    length: int
+    alpha: int
+    sigma: int
 
     def toTSV(self, pos):
         return [self.positions[pos][0], self.positions[pos][1], self.brightness, self.fwhm, 1]
@@ -58,12 +72,9 @@ class StarGenerator:
 
         if self.config.saveImages:
 
-            stars_image = np.zeros((self.config.SizeX, self.config.SizeY))
+            stars_image = np.zeros((self.config.SizeY, self.config.SizeX))
             for s in stars:
-                if self.config.Stars.streak.enable:
-                    self.drawLineGauss(s, stars_image)
-                else:
-                    self.drawStarGaus(s, stars_image)
+                self.drawStar(s, stars_image)
 
             images = []
             for i in range(self.config.numberOfFramesInOneSeries):
@@ -71,7 +82,7 @@ class StarGenerator:
                 self.addNoise(image)
 
                 for obj in objects:
-                    self.drawStarGaus(obj, image)
+                    self.drawObject(obj, image)
                     obj.x, obj.y = obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0], \
                                    obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1]
 
@@ -81,6 +92,18 @@ class StarGenerator:
 
             if self.config.plot:
                 self.plotSeries(images)
+
+    def drawObject(self, obj, image):
+        if self.config.Objects.method == 'line':
+            self.drawLineGauss(obj, image)
+        elif self.config.Objects.method == 'gauss':
+            self.drawStarGaus(obj, image)
+
+    def drawStar(self, star, image):
+        if self.config.Stars.method == 'line':
+            self.drawLineGauss(star, image)
+        elif self.config.Stars.method == 'gauss':
+            self.drawStarGaus(star, image)
 
     def saveTSV(self, stars, objects, t):
 
@@ -146,38 +169,84 @@ class StarGenerator:
         y = rr(self.config.SizeY)
         brightness = self.config.Stars.brightness.value()
         fwhm = self.config.Stars.fwhm.value()
+        length = self.config.Stars.length.value()
+        alpha = self.config.Stars.alpha.value()
+        sigma = self.config.Stars.sigma.value()
 
-        return Star(x, y, brightness, fwhm)
+        return Star(x=x,
+                    y=y,
+                    brightness=brightness,
+                    fwhm=fwhm,
+                    length=length,
+                    alpha=alpha,
+                    sigma=sigma)
 
     def randomObject(self):
-        points = self.generateRandomObjectPoints()
         brightness = self.config.Objects.brightness.value()
         fwhm = self.config.Objects.fwhm.value()
+        length = self.config.Objects.length.value()
+        alpha = self.config.Objects.alpha.value()
+        sigma = self.config.Objects.sigma.value()
 
-        obj = Object(x=points[0][0], y=points[0][1],
-                     brightness=brightness, fwhm=fwhm, positions=points)
+        points = self.generateObjectPoints(alpha)
+
+        obj = Object(x=points[0][0],
+                     y=points[0][1],
+                     brightness=brightness,
+                     fwhm=fwhm,
+                     positions=points,
+                     length=length,
+                     alpha=alpha,
+                     sigma=sigma)
 
         return obj
 
-    def generateRandomObjectPoints(self):
-        x = rr(self.config.SizeX)
-        y = rr(self.config.SizeY)
-        p = random.random()
-        if p >= 0.75:
-            edge_point = (rr(self.config.SizeX), 0)
-        elif p >= 0.5:
-            edge_point = (rr(self.config.SizeX), self.config.SizeY)
-        elif p >= 0.25:
-            edge_point = (0, rr(self.config.SizeY))
-        else:
-            edge_point = (self.config.SizeX, rr(self.config.SizeY))
-        speed = self.config.Objects.speed.value() / 100
+    def generateObjectPoints(self, alpha):
+        # convert degrees to radians
+        alphaRad = np.deg2rad(alpha)
 
-        step_x, step_y = ((edge_point[0] - x) * speed // self.config.numberOfFramesInOneSeries,
-                          (edge_point[1] - y) * speed // self.config.numberOfFramesInOneSeries)
-        points = [(x + i * step_x, y + i * step_y) for i in range(self.config.numberOfFramesInOneSeries)]
+        # compute shift vector from angle
+        shift = np.array([np.cos(alphaRad), np.sin(alphaRad)])
+        shiftNorm = shift / np.linalg.norm(shift)
+
+        speed = self.config.Objects.speed.value() / 100
+        minDimension = np.min([self.config.SizeY, self.config.SizeX])
+
+        # compute total distance traveled
+        totalDistX, totalDistY = (np.floor(minDimension * speed * shiftNorm[0]),
+                                  np.floor(minDimension * speed * shiftNorm[1]))
+
+        stepX, stepY = (totalDistX // self.config.numberOfFramesInOneSeries,
+                        totalDistY // self.config.numberOfFramesInOneSeries)
+
+        # create bounding box limiting object's position so it doesnt leave image
+        boundingBox = self.createBoundingBox(totalDistX, totalDistY)
+
+        startPoint = self.generateRandomPosition(boundingBox)
+        points = [(startPoint[0] + i * stepX, startPoint[1] + i * stepY) for i in
+                  range(self.config.numberOfFramesInOneSeries)]
 
         return points
+
+    def generateRandomPosition(self, boundingBox=None):
+        if boundingBox is None:
+            x = rr(self.config.SizeX)
+            y = rr(self.config.SizeY)
+        else:
+            x = rr(boundingBox.minX, boundingBox.maxX)
+            y = rr(boundingBox.minY, boundingBox.maxY)
+
+        return [x, y]
+
+    def createBoundingBox(self, distanceX, distanceY) -> BoundingBox:
+        minX = 0 if distanceX > 0 else -distanceX
+        maxX = self.config.SizeX - distanceX if distanceX > 0 else self.config.SizeX
+
+        minY = 0 if distanceY > 0 else -distanceY
+        maxY = self.config.SizeY - distanceY if distanceY > 0 else self.config.SizeY
+
+        return BoundingBox(minX, maxX, minY, maxY)
+
 
     def drawStarGaus(self, star, image):
 
@@ -194,7 +263,7 @@ class StarGenerator:
 
         for y in range(upy, dwy + 1):
             for x in range(upx, dwx):
-                image[x, y] += star.brightness * self.bigaus(star.x - x + 0.5, star.y - y + 0.5, k, sigma2)
+                image[y, x] += star.brightness * self.bigaus(star.x - x + 0.5, star.y - y + 0.5, k, sigma2)
 
     def drawLineGauss(self, star, image):
         def calcPosition(x, y, linePointA, linePointB):
@@ -253,12 +322,13 @@ class StarGenerator:
         center = np.array([star.x, star.y])
 
         # streak variables
-        length = self.config.Stars.streak.length
-        sigma = self.config.Stars.streak.sigma
-        alpha = self.config.Stars.streak.alpha
+        length = star.length
+        sigma = star.sigma
+        alpha = star.alpha
+        alphaRad = np.deg2rad(alpha)
 
         # direction vector of the object (not normalized)
-        shift = length * sigma * np.array([np.cos(alpha), np.sin(alpha)])
+        shift = length * sigma * np.array([np.cos(alphaRad), np.sin(alphaRad)])
 
         # right and left point of the object (plateau boundaries)
         rightP = center + shift
@@ -268,7 +338,7 @@ class StarGenerator:
         halfLengthA = length * sigma + 5 * sigma
         halfLengthB = 5 * sigma
 
-        corners = getCorners(center, halfLengthA, halfLengthB, alpha)
+        corners = getCorners(center, halfLengthA, halfLengthB, alphaRad)
 
         # rows/y coordinates (upy <= y <= dwy)
         upy = corners['bottom']
@@ -279,7 +349,7 @@ class StarGenerator:
         dwx = corners['right']
 
         sigma2 = sigma ** 2
-        alpha2 = alpha + np.pi / 2
+        alpha2 = alphaRad + np.pi / 2
         sin2 = np.sin(alpha2)
         cos2 = np.cos(alpha2)
         shift2 = np.array([cos2, sin2])
@@ -301,19 +371,20 @@ class StarGenerator:
             for x in range(upx, dwx):
                 # left of left line
                 if checkLeft(x, y, l1, l2):
-                    newImage[x, y] += self.bigaus(leftP[0] - x + 0.5, leftP[1] - y + 0.5, 1, sigma2)
+                    newImage[y, x] += self.bigaus(leftP[0] - x + 0.5, leftP[1] - y + 0.5, 1, sigma2)
                 # right of right line
                 elif checkRight(x, y, r1, r2):
-                    newImage[x, y] += self.bigaus(rightP[0] - x + 0.5, rightP[1] - y + 0.5, 1, sigma2)
+                    newImage[y, x] += self.bigaus(rightP[0] - x + 0.5, rightP[1] - y + 0.5, 1, sigma2)
                 else:
                     # this is the strechted zone
                     # project point on the centre line (given by points centre and centre + direction_vec)
                     point = np.array([x, y])
                     projected = projectPointOntoLine(point, c1, c2)
-                    newImage[x, y] += self.bigaus(center[0] - projected[0] + 0.5, center[1] - projected[1] + 0.5, 1,
+                    newImage[y, x] += self.bigaus(center[0] - projected[0] + 0.5, center[1] - projected[1] + 0.5, 1,
                                                   sigma2)
 
-        newImage = star.brightness * (newImage / np.sum(newImage))
+        sumImg = np.sum(newImage)
+        newImage = star.brightness * (newImage / sumImg)
 
         image += newImage
 

@@ -2,30 +2,40 @@ from dataclasses import dataclass
 import random
 import yaml
 
-@dataclass
-class Streak:
-    length: int
-    alpha: int
-    sigma: int
-    enable: bool
-
-    def __init__(self, **entries):
-        self.__dict__.update(entries)
 
 @dataclass
 class Value:
     min: int
     max: int
     random: str
+    savedValue: int = None
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
+    def uniform(self):
+        return random.randrange(self.min, self.max + 1)
+
+    def normal(self):
+        return int(random.gauss(mu=(abs(self.min + self.max) / 2), sigma=(self.max - self.min)))
+
     def value(self):
         if self.random == 'uniform':
-            return random.randrange(self.min, self.max+1)
+            return self.uniform()
+
         if self.random == 'normal':
-            return int(random.gauss(mu=(abs(self.min + self.max) / 2), sigma=(self.max - self.min)))
+            return self.normal()
+
+        if self.random == 'uniform*':
+            if self.savedValue is None:
+                self.savedValue = self.uniform()
+            return self.savedValue
+
+        if self.random == 'normal*':
+            if self.savedValue is None:
+                self.savedValue = self.normal()
+            return self.savedValue
+
 
 @dataclass
 class Noise:
@@ -42,15 +52,19 @@ class Stars:
     count: Value
     brightness: Value
     fwhm: Value
-    streak: Streak
+    method: str
+    length: Value
+    alpha: Value
+    sigma: Value
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
         self.count = Value(**self.count)
         self.brightness = Value(**self.brightness)
         self.fwhm = Value(**self.fwhm)
-        self.streak = Streak(**self.streak)
-
+        self.length = Value(**self.length)
+        self.alpha = Value(**self.alpha)
+        self.sigma = Value(**self.sigma)
 
 
 @dataclass
@@ -59,6 +73,10 @@ class Objects:
     brightness: Value
     fwhm: Value
     speed: Value
+    method: str
+    length: Value
+    alpha: Value
+    sigma: Value
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -66,6 +84,10 @@ class Objects:
         self.brightness = Value(**self.brightness)
         self.fwhm = Value(**self.fwhm)
         self.speed = Value(**self.speed)
+        self.length = Value(**self.length)
+        self.alpha = Value(**self.alpha)
+        self.sigma = Value(**self.sigma)
+
 
 @dataclass
 class Bias:
@@ -75,6 +97,7 @@ class Bias:
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
+
 
 @dataclass
 class HotPixel:

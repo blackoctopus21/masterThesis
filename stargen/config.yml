@@ -22,43 +22,78 @@ Stars:
     max: 12
     random: uniform
 
-  streak:
-    enable: true
-    length:  10
-    alpha: 25
-    sigma: 2
+  # method: line/gauss
+  method: gauss
+
+  # streak properties
+  # applied only when method is line
+  length:
+    min: 5
+    max: 25
+    random: uniform*
+
+  alpha:
+    min: 0
+    max: 360
+    random: uniform*
+
+  sigma:
+    min: 1
+    max: 3
+    random: uniform*
 
 Objects:
   count:
-    min: 1
-    max: 1
+    min: 5
+    max: 5
     random: uniform
 
   brightness:
     min: 1000
-    max: 5000
-    random: normal
+    max: 10000
+    random: uniform
 
   fwhm:
     min: 3
     max: 8
     random: uniform
 
-  # speed of ibject traveled % of the screen in 8 frames
+  # speed of object traveled % of the screen in one series
+  # if frame is not a square, smallest dimension will be considered
   speed:
     min: 30
-    max: 100
+    max: 50
+    random: uniform
+
+  # method: line/gauss
+  method: line
+
+  # streak properties
+  # applied only when method is line
+  length:
+    min: 5
+    max: 25
+    random: uniform
+
+  alpha:
+    min: 0
+    max: 360
+    random: uniform
+
+  sigma:
+    min: 1
+    max: 3
     random: uniform
 
 Noise:
     mean: 10
     std: 7
-    enable: true
+    enable: False
 
 Bias:
     value: 20
     columns: 25
-    enable: true
+    enable: False
 
 HotPixel:
     count: 10
@@ -68,4 +103,4 @@ HotPixel:
       max: 10000
       random: uniform
 
-    enable: false
+    enable: False
