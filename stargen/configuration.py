@@ -55,7 +55,6 @@ class Stars:
     method: str
     length: Value
     alpha: Value
-    sigma: Value
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -64,7 +63,6 @@ class Stars:
         self.fwhm = Value(**self.fwhm)
         self.length = Value(**self.length)
         self.alpha = Value(**self.alpha)
-        self.sigma = Value(**self.sigma)
 
 
 @dataclass
@@ -76,7 +74,7 @@ class Objects:
     method: str
     length: Value
     alpha: Value
-    sigma: Value
+    enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -86,8 +84,28 @@ class Objects:
         self.speed = Value(**self.speed)
         self.length = Value(**self.length)
         self.alpha = Value(**self.alpha)
-        self.sigma = Value(**self.sigma)
 
+@dataclass
+class Clusters:
+    count: Value
+    objectCountPerCluster: Value
+    brightness: Value
+    fwhm: Value
+    speed: Value
+    method: str
+    length: Value
+    alpha: Value
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+        self.count = Value(**self.count)
+        self.objectCountPerCluster = Value(**self.objectCountPerCluster)
+        self.brightness = Value(**self.brightness)
+        self.fwhm = Value(**self.fwhm)
+        self.speed = Value(**self.speed)
+        self.length = Value(**self.length)
+        self.alpha = Value(**self.alpha)
 
 @dataclass
 class Bias:
@@ -101,12 +119,13 @@ class Bias:
 
 @dataclass
 class HotPixel:
-    count: int
+    count: Value
     brightness: Value
     enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
+        self.count = Value(**self.count)
         self.brightness = Value(**self.brightness)
 
 
@@ -118,6 +137,7 @@ class Configuration:
     SizeY: int
     Stars: Stars
     Objects: Objects
+    Clusters: Clusters
     dataFile: str
     plot: bool
     saveImages: bool
@@ -129,6 +149,7 @@ class Configuration:
         self.__dict__.update(entries)
         self.Stars = Stars(**self.Stars)
         self.Objects = Objects(**self.Objects)
+        self.Clusters = Clusters(**self.Clusters)
         self.Noise = Noise(**self.Noise)
         self.Bias = Bias(**self.Bias)
         self.HotPixel = HotPixel(**self.HotPixel)

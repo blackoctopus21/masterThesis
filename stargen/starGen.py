@@ -31,7 +31,6 @@ class Star:
     fwhm: int
     length: int
     alpha: int
-    sigma: int
 
     def toTSV(self):
         return [self.x, self.y, self.brightness, self.fwhm, 0]
@@ -46,10 +45,16 @@ class Object:
     positions: list
     length: int
     alpha: int
-    sigma: int
+
+    isCluster: bool
 
     def toTSV(self, pos):
         return [self.positions[pos][0], self.positions[pos][1], self.brightness, self.fwhm, 1]
+
+
+@dataclass
+class Cluster:
+    objects: list
 
 
 class StarGenerator:
@@ -67,43 +72,47 @@ class StarGenerator:
 
         objects = self.generateObjects()
         stars = self.generateStars()
+        clusters = self.generateClusters()
 
-        self.saveTSV(stars, objects, t)
+        # converge all objects together
+        allObjects = objects
+        for cl in clusters:
+            allObjects.extend(cl.objects)
+
+        self.saveTSV(stars, allObjects, t)
 
         if self.config.saveImages:
 
             stars_image = np.zeros((self.config.SizeY, self.config.SizeX))
             for s in stars:
-                self.drawStar(s, stars_image)
+                self.drawObject(s, stars_image, self.config.Stars.method)
+
+            # here we add all defects and noises that needs to be same for every frame in series
+            #self.addHotPixels(stars_image)
 
             images = []
             for i in range(self.config.numberOfFramesInOneSeries):
                 image = stars_image.copy()
                 self.addNoise(image)
 
-                for obj in objects:
-                    self.drawObject(obj, image)
-                    obj.x, obj.y = obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0], \
-                                   obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1]
+                for obj in allObjects:
+                    method = self.config.Clusters.method if obj.isCluster else self.config.Objects.method
+                    self.drawObject(obj, image, method)
+                    obj.x, obj.y = (obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0],
+                                    obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1])
 
                 images.append(image)
 
-            self.saveSeriesToFile(images, objects, t)
+            self.saveSeriesToFile(images, allObjects, t)
 
             if self.config.plot:
                 self.plotSeries(images)
 
-    def drawObject(self, obj, image):
-        if self.config.Objects.method == 'line':
+    def drawObject(self, obj, image, method):
+        if method == 'line':
             self.drawLineGauss(obj, image)
-        elif self.config.Objects.method == 'gauss':
+        elif method == 'gauss':
             self.drawStarGaus(obj, image)
-
-    def drawStar(self, star, image):
-        if self.config.Stars.method == 'line':
-            self.drawLineGauss(star, image)
-        elif self.config.Stars.method == 'gauss':
-            self.drawStarGaus(star, image)
 
     def saveTSV(self, stars, objects, t):
 
@@ -112,12 +121,14 @@ class StarGenerator:
 
         for i in range(self.config.numberOfFramesInOneSeries):
             data = [s.toTSV() for s in stars] + [o.toTSV(i) for o in objects]
-            df = pd.DataFrame(np.array(data), columns=["x", "y", "brightness", "fwhm", "is_object"])
-            df.to_csv(f"{directory}/data_{i + 1:04d}.tsv", index=False, sep='\t')
+            if len(data) > 0:
+                df = pd.DataFrame(np.array(data), columns=["x", "y", "brightness", "fwhm", "is_object"])
+                df.to_csv(f"{directory}/data_{i + 1:04d}.tsv", index=False, sep='\t')
 
         data = [[i] + o.toTSV(i) for o in objects for i in range(self.config.numberOfFramesInOneSeries)]
-        df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
-        df.to_csv(f"{directory}/objects.tsv", index=False)
+        if len(data) > 0:
+            df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
+            df.to_csv(f"{directory}/objects.tsv", index=False)
 
     def plotSeries(self, images):
         numberOfRows = self.config.numberOfFramesInOneSeries // 4
@@ -159,10 +170,18 @@ class StarGenerator:
         return stars
 
     def generateObjects(self):
-
-        objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
+        objects = []
+        if self.config.Objects.enable:
+            objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
 
         return objects
+
+    def generateClusters(self):
+        clusters = []
+        if self.config.Clusters.enable:
+            clusters = [self.generateOneCluster() for i in range(self.config.Clusters.count.value())]
+
+        return clusters
 
     def randomStar(self):
         x = rr(self.config.SizeX)
@@ -171,24 +190,22 @@ class StarGenerator:
         fwhm = self.config.Stars.fwhm.value()
         length = self.config.Stars.length.value()
         alpha = self.config.Stars.alpha.value()
-        sigma = self.config.Stars.sigma.value()
 
         return Star(x=x,
                     y=y,
                     brightness=brightness,
                     fwhm=fwhm,
                     length=length,
-                    alpha=alpha,
-                    sigma=sigma)
+                    alpha=alpha)
 
     def randomObject(self):
         brightness = self.config.Objects.brightness.value()
         fwhm = self.config.Objects.fwhm.value()
         length = self.config.Objects.length.value()
         alpha = self.config.Objects.alpha.value()
-        sigma = self.config.Objects.sigma.value()
 
-        points = self.generateObjectPoints(alpha)
+        speed = self.config.Objects.speed.value() / 100
+        points = self.generateObjectPoints(alpha, speed)
 
         obj = Object(x=points[0][0],
                      y=points[0][1],
@@ -197,11 +214,27 @@ class StarGenerator:
                      positions=points,
                      length=length,
                      alpha=alpha,
-                     sigma=sigma)
+                     isCluster=False)
 
         return obj
 
-    def generateObjectPoints(self, alpha):
+    def clusterObject(self, length, alpha, speed):
+        brightness = self.config.Objects.brightness.value()
+        fwhm = self.config.Objects.fwhm.value()
+        points = self.generateObjectPoints(alpha, speed)
+
+        obj = Object(x=points[0][0],
+                     y=points[0][1],
+                     brightness=brightness,
+                     fwhm=fwhm,
+                     positions=points,
+                     length=length,
+                     alpha=alpha,
+                     isCluster=True)
+
+        return obj
+
+    def generateObjectPoints(self, alpha, speed):
         # convert degrees to radians
         alphaRad = np.deg2rad(alpha)
 
@@ -209,7 +242,6 @@ class StarGenerator:
         shift = np.array([np.cos(alphaRad), np.sin(alphaRad)])
         shiftNorm = shift / np.linalg.norm(shift)
 
-        speed = self.config.Objects.speed.value() / 100
         minDimension = np.min([self.config.SizeY, self.config.SizeX])
 
         # compute total distance traveled
@@ -227,6 +259,20 @@ class StarGenerator:
                   range(self.config.numberOfFramesInOneSeries)]
 
         return points
+
+    def generateOneCluster(self):
+        # in the cluster all objects have same speed,length,alpha
+
+        length = self.config.Clusters.length.value()
+        alpha = self.config.Clusters.alpha.value()
+        speed = self.config.Clusters.speed.value() / 100
+
+        clusterObjects = []
+        for i in range(self.config.Clusters.objectCountPerCluster.value()):
+            obj = self.clusterObject(length, alpha, speed)
+            clusterObjects.append(obj)
+
+        return Cluster(clusterObjects)
 
     def generateRandomPosition(self, boundingBox=None):
         if boundingBox is None:
@@ -246,7 +292,6 @@ class StarGenerator:
         maxY = self.config.SizeY - distanceY if distanceY > 0 else self.config.SizeY
 
         return BoundingBox(minX, maxX, minY, maxY)
-
 
     def drawStarGaus(self, star, image):
 
@@ -323,7 +368,7 @@ class StarGenerator:
 
         # streak variables
         length = star.length
-        sigma = star.sigma
+        sigma = (star.fwhm / 2.355)
         alpha = star.alpha
         alphaRad = np.deg2rad(alpha)
 

@@ -37,12 +37,9 @@ Stars:
     max: 360
     random: uniform*
 
-  sigma:
-    min: 1
-    max: 3
-    random: uniform*
-
 Objects:
+  enable: True
+
   count:
     min: 5
     max: 5
@@ -65,6 +62,12 @@ Objects:
     max: 50
     random: uniform
 
+  # determines the direction of the motion
+  alpha:
+    min: 0
+    max: 360
+    random: uniform
+
   # method: line/gauss
   method: line
 
@@ -75,14 +78,50 @@ Objects:
     max: 25
     random: uniform
 
+Clusters:
+  enable: True
+
+  count:
+    min: 1
+    max: 1
+    random: uniform
+
+  objectCountPerCluster:
+    min: 3
+    max: 3
+    random: uniform
+
+  brightness:
+    min: 1000
+    max: 10000
+    random: uniform
+
+  fwhm:
+    min: 3
+    max: 10
+    random: uniform
+
+  # speed of objects traveled % of the screen in one series
+  # if frame is not a square, smallest dimension will be considered
+  speed:
+    min: 30
+    max: 80
+    random: uniform
+
+  # determines the direction of the motion
   alpha:
     min: 0
     max: 360
     random: uniform
 
-  sigma:
-    min: 1
-    max: 3
+  # method: line/gauss
+  method: line
+
+  # streak properties
+  # applied only when method is line
+  length:
+    min: 10
+    max: 50
     random: uniform
 
 Noise:
@@ -96,11 +135,14 @@ Bias:
     enable: False
 
 HotPixel:
-    count: 10
+    count:
+      min: 10
+      max: 15
+      random: uniform*
 
     brightness:
       min: 5000
       max: 10000
       random: uniform
 
-    enable: False
+    enable: True
