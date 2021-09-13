@@ -88,7 +88,7 @@ class StarGenerator:
                 self.drawObject(s, stars_image, self.config.Stars.method)
 
             # here we add all defects and noises that needs to be same for every frame in series
-            #self.addHotPixels(stars_image)
+            self.addHotPixels(stars_image)
 
             images = []
             for i in range(self.config.numberOfFramesInOneSeries):
@@ -466,15 +466,19 @@ class StarGenerator:
 
     def addHotPixels(self, image):
         if self.config.HotPixel.enable:
-            # Like with the bias image, we want the hot pixels to always be in the same places
+            # We want the hot pixels to always be in the same places
             # (at least for the same image size) but also want them to appear to be randomly
-            # distributed. So we set a random number seed to ensure we always get the same thing.
-            rng = np.random.RandomState(16201649)
-            hotX = rng.randint(0, self.config.SizeX - 1, size=self.config.HotPixel.count)
-            hotY = rng.randint(0, self.config.SizeY - 1, size=self.config.HotPixel.count)
+            # distributed. Random seed will be dependent on the image size
+            count = self.config.HotPixel.count.value()
 
-            for i in range(self.config.HotPixel.count):
-                image[tuple([hotX[i], hotY[i]])] = self.config.HotPixel.brightness.value()
+            randomSeed = self.config.SizeX * self.config.SizeY
+            rng = np.random.RandomState(randomSeed)
+
+            x = rng.randint(0, self.config.SizeX - 1, size=count)
+            y = rng.randint(0, self.config.SizeY - 1, size=count)
+
+            for i in range(count):
+                image[tuple([y[i], x[i]])] = self.config.HotPixel.brightness.value()
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
