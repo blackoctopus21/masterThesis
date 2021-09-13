@@ -119,13 +119,12 @@ class Bias:
 
 @dataclass
 class HotPixel:
-    count: Value
+    count: int
     brightness: Value
     enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.count = Value(**self.count)
         self.brightness = Value(**self.brightness)
 
 

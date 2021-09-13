@@ -88,11 +88,14 @@ class StarGenerator:
                 self.drawObject(s, stars_image, self.config.Stars.method)
 
             # here we add all defects and noises that needs to be same for every frame in series
-            self.addHotPixels(stars_image)
+            # bias, dark current, flat field, diffuse sources
 
             images = []
             for i in range(self.config.numberOfFramesInOneSeries):
                 image = stars_image.copy()
+
+                # here we add all defects and noises that are different for each frame
+                # photon noise, cosmics, readout
                 self.addNoise(image)
 
                 for obj in allObjects:
@@ -102,6 +105,11 @@ class StarGenerator:
                                     obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1])
 
                 images.append(image)
+
+            # here we add all defects and noises that needs to be same for every frame in series
+            # and cant be added before generating objects because they set value and not add it.
+            # hot pixels, dead pixels, dead columns, traps
+            self.addHotPixels(images)
 
             self.saveSeriesToFile(images, allObjects, t)
 
@@ -238,15 +246,14 @@ class StarGenerator:
         # convert degrees to radians
         alphaRad = np.deg2rad(alpha)
 
-        # compute shift vector from angle
+        # compute shift vector from angle (normalized)
         shift = np.array([np.cos(alphaRad), np.sin(alphaRad)])
-        shiftNorm = shift / np.linalg.norm(shift)
 
         minDimension = np.min([self.config.SizeY, self.config.SizeX])
 
         # compute total distance traveled
-        totalDistX, totalDistY = (np.floor(minDimension * speed * shiftNorm[0]),
-                                  np.floor(minDimension * speed * shiftNorm[1]))
+        totalDistX, totalDistY = (np.floor(minDimension * speed * shift[0]),
+                                  np.floor(minDimension * speed * shift[1]))
 
         stepX, stepY = (totalDistX // self.config.numberOfFramesInOneSeries,
                         totalDistY // self.config.numberOfFramesInOneSeries)
@@ -464,12 +471,12 @@ class StarGenerator:
 
             image += bias_image
 
-    def addHotPixels(self, image):
+    def addHotPixels(self, images):
         if self.config.HotPixel.enable:
             # We want the hot pixels to always be in the same places
             # (at least for the same image size) but also want them to appear to be randomly
             # distributed. Random seed will be dependent on the image size
-            count = self.config.HotPixel.count.value()
+            count = self.config.HotPixel.count
 
             randomSeed = self.config.SizeX * self.config.SizeY
             rng = np.random.RandomState(randomSeed)
@@ -477,8 +484,9 @@ class StarGenerator:
             x = rng.randint(0, self.config.SizeX - 1, size=count)
             y = rng.randint(0, self.config.SizeY - 1, size=count)
 
-            for i in range(count):
-                image[tuple([y[i], x[i]])] = self.config.HotPixel.brightness.value()
+            for image in images:
+                for i in range(count):
+                    image[tuple([y[i], x[i]])] = self.config.HotPixel.brightness.value()
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
