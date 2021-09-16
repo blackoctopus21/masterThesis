@@ -85,6 +85,7 @@ class Objects:
         self.length = Value(**self.length)
         self.alpha = Value(**self.alpha)
 
+
 @dataclass
 class Clusters:
     count: Value
@@ -106,6 +107,7 @@ class Clusters:
         self.speed = Value(**self.speed)
         self.length = Value(**self.length)
         self.alpha = Value(**self.alpha)
+
 
 @dataclass
 class Bias:
@@ -129,6 +131,26 @@ class HotPixel:
 
 
 @dataclass
+class CosmicRays:
+    count: Value
+    brightness: Value
+    pixelCount: Value
+    spotPixelCount: Value
+    enable: bool
+
+    cosmicTypes: list
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+        self.count = Value(**self.count)
+        self.brightness = Value(**self.brightness)
+        self.pixelCount = Value(**self.pixelCount)
+        self.spotPixelCount = Value(**self.spotPixelCount)
+
+        self.cosmicTypes = ['spot', 'track', 'worm']
+
+
+@dataclass
 class Configuration:
     numberOfSeries: int
     numberOfFramesInOneSeries: int
@@ -143,6 +165,7 @@ class Configuration:
     Noise: Noise
     Bias: Bias
     HotPixel: HotPixel
+    CosmicRays: CosmicRays
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -152,6 +175,7 @@ class Configuration:
         self.Noise = Noise(**self.Noise)
         self.Bias = Bias(**self.Bias)
         self.HotPixel = HotPixel(**self.HotPixel)
+        self.CosmicRays = CosmicRays(**self.CosmicRays)
 
 
 def loadConfig(filename="config.yml"):

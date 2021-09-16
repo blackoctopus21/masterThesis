@@ -2,12 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import math
-import matplotlib.pyplot as plt
 import pandas as pd
 from astropy.io import fits
-from collections import namedtuple
 from random import randrange as rr
-import pathlib
 import random
 import os
 import time
@@ -58,9 +55,14 @@ class Cluster:
 
 
 class StarGenerator:
+    config: configuration.Configuration
+    neighbourhood4: list
+    neighbourhood8: list
 
     def __init__(self, config):
         self.config: configuration.Configuration = config
+        self.neighbourhood4 = [[0, 1], [1, 0], [0, -1], [-1, 0]]
+        self.neighbourhood8 = self.neighbourhood4 + [[1, 1], [-1, -1], [1, -1], [-1, 1]]
 
     def generateSeries(self):
         for i in tqdm(range(self.config.numberOfSeries)):
@@ -97,6 +99,7 @@ class StarGenerator:
                 # here we add all defects and noises that are different for each frame
                 # photon noise, cosmics, readout
                 self.addNoise(image)
+                self.addCosmicRays(image)
 
                 for obj in allObjects:
                     method = self.config.Clusters.method if obj.isCluster else self.config.Objects.method
@@ -261,7 +264,7 @@ class StarGenerator:
         # create bounding box limiting object's position so it doesnt leave image
         boundingBox = self.createBoundingBox(totalDistX, totalDistY)
 
-        startPoint = self.generateRandomPosition(boundingBox)
+        startPoint = self.randomPosition(boundingBox)
         points = [(startPoint[0] + i * stepX, startPoint[1] + i * stepY) for i in
                   range(self.config.numberOfFramesInOneSeries)]
 
@@ -281,7 +284,7 @@ class StarGenerator:
 
         return Cluster(clusterObjects)
 
-    def generateRandomPosition(self, boundingBox=None):
+    def randomPosition(self, boundingBox=None):
         if boundingBox is None:
             x = rr(self.config.SizeX)
             y = rr(self.config.SizeY)
@@ -289,7 +292,7 @@ class StarGenerator:
             x = rr(boundingBox.minX, boundingBox.maxX)
             y = rr(boundingBox.minY, boundingBox.maxY)
 
-        return [x, y]
+        return np.array([x, y])
 
     def createBoundingBox(self, distanceX, distanceY) -> BoundingBox:
         minX = 0 if distanceX > 0 else -distanceX
@@ -488,9 +491,176 @@ class StarGenerator:
                 for i in range(count):
                     image[tuple([y[i], x[i]])] = self.config.HotPixel.brightness.value()
 
+    def addCosmicRays(self, image):
+        if self.config.CosmicRays.enable:
+            count = self.config.CosmicRays.count.value()
+
+            for _ in range(count):
+                cosmicType = random.choice(self.config.CosmicRays.cosmicTypes)
+                # cosmicType = 'spot'
+
+                if cosmicType == 'spot':
+                    self.addSpot(image)
+                elif cosmicType == 'worm':
+                    self.addWorm(image)
+                elif cosmicType == 'track':
+                    self.addTrack(image)
+
+    def addSpot(self, image):
+        newImage = np.zeros_like(image)
+        pixelCount = self.config.CosmicRays.spotPixelCount.value()
+
+        # compute center point
+        lastPixel = self.randomPosition()
+        image[self.flip(lastPixel)] = self.config.CosmicRays.brightness.value()
+
+        numberOfFilledPixels = 1
+        while numberOfFilledPixels < pixelCount:
+            direction = random.choice(self.neighbourhood4)
+            position = lastPixel + direction
+
+            # if position is not within image find a new direction
+            if not self.isWithinImage(position):
+                print("skipping out of image")
+                lastPixel = position
+                continue
+
+            # if position is already filled find a new direction
+            if newImage[self.flip(position)] > 0:
+                print("skipping already filled")
+                lastPixel = position
+                continue
+
+            image[self.flip(position)] = self.config.CosmicRays.brightness.value()
+
+            numberOfFilledPixels += 1
+            # here we dont update the lastPixel because we want it centered around the startPoint
+            # if we already filled all of them then we change the lastPixel
+
+        image += newImage
+
+    def addWorm(self, image):
+        newImage = np.zeros_like(image)
+        pixelCount = self.config.CosmicRays.pixelCount.value()
+
+        # compute start point and random direction
+        lastPixel = self.randomPosition()
+        direction = random.choice(self.neighbourhood8)
+
+        numberOfFilledPixels = 0
+        while numberOfFilledPixels < pixelCount:
+
+            # compute new direction which is allowed
+            direction = random.choice(self.allowedDirections(direction))
+
+            # compute number of pixels for this direction
+            directionPixelCount = random.randrange(1, (pixelCount // 4) + 1)
+
+            for _ in range(directionPixelCount):
+                position = lastPixel + direction
+
+                # if we have already enough filled pixels break the FOR loop
+                if numberOfFilledPixels >= pixelCount:
+                    break
+
+                # if position is not within image break this for loop and find a new direction
+                if not self.isWithinImage(position):
+                    print("skipping out of image")
+                    break
+
+                # if position is already filled break this for loop and find new direction
+                if newImage[self.flip(position)] > 0:
+                    print("skipping already filled")
+                    break
+
+                # compute brightness of this point
+                newImage[self.flip(position)] = self.config.CosmicRays.brightness.value()
+
+                # when finished update number of filled pixels and last pixel
+                lastPixel = position
+                numberOfFilledPixels += 1
+
+        image += newImage
+
+    def addTrack(self, image):
+        newImage = np.zeros_like(image)
+        pixelCount = self.config.CosmicRays.pixelCount.value()
+
+        # compute start point and random directions
+        lastPixel = self.randomPosition()
+        mainDirection = random.choice(self.neighbourhood8)
+        secondaryDirection = random.choice(self.allowedDirections(mainDirection))
+
+        # boolean value to allow us to alternate between two directions
+        useMainDirection = True
+
+        # boolean value to indicate if we are out of image
+        outOfImage = False
+
+        numberOfFilledPixels = 0
+        while numberOfFilledPixels < pixelCount:
+
+            # compute number of pixels for this direction
+            directionPixelCount = random.randrange(1, 5)
+
+            for _ in range(directionPixelCount):
+                # choose direction
+                direction = mainDirection if useMainDirection else secondaryDirection
+
+                # compute position
+                position = lastPixel + direction
+
+                # if we have already enough filled pixels break the FOR loop
+                if numberOfFilledPixels >= pixelCount:
+                    break
+
+                # if position is not within image break this for loop and end while cycle
+                if not self.isWithinImage(position):
+                    outOfImage = True
+                    print("skipping out of image")
+                    break
+
+                # compute brightness of this point
+                newImage[self.flip(position)] = self.config.CosmicRays.brightness.value()
+
+                # when finished update number of filled pixels and last pixel
+                lastPixel = position
+                numberOfFilledPixels += 1
+
+            # when finished in certain direction we should alternate directions
+            useMainDirection = not useMainDirection
+
+            # if we are out of image we need to break out of while cycle as there is no more space where we can go
+            if outOfImage:
+                break
+
+        image += newImage
+
+    def allowedDirections(self, direction):
+        x, y = direction
+        if x == 0:
+            return [[-1, y], [1, y]]
+
+        if y == 0:
+            return [[x, 1], [x, -1]]
+
+        return [[x, 0], [0, y]]
+
+    def isDiagonal(self, direction):
+        x, y = direction
+        return x != 0 and y != 0
+
+    def isWithinImage(self, pos):
+        return 0 <= pos[0] < self.config.SizeX and 0 <= pos[1] < self.config.SizeY
+
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
         fits.writeto(name, image.astype(np.float32), overwrite=True)
+
+    def flip(self, pos):
+        return pos[1], pos[0]
+
+
 
 
 class TrainingDataGenerator(StarGenerator):

@@ -1,15 +1,15 @@
 numberOfSeries: 1
 numberOfFramesInOneSeries: 5
-SizeX: 1024
-SizeY: 1024
+SizeX: 500
+SizeY: 500
 dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  #
-plot: False
+plot: True
 saveImages: True
 
 Stars:
   count:
     min: 10
-    max: 50
+    max: 30
     random: uniform
 
   brightness:
@@ -18,8 +18,8 @@ Stars:
     random: uniform
 
   fwhm:
-    min: 5
-    max: 12
+    min: 2
+    max: 2
     random: uniform
 
   # method: line/gauss
@@ -38,11 +38,11 @@ Stars:
     random: uniform*
 
 Objects:
-  enable: True
+  enable: False
 
   count:
-    min: 5
-    max: 5
+    min: 1
+    max: 1
     random: uniform
 
   brightness:
@@ -52,14 +52,14 @@ Objects:
 
   fwhm:
     min: 3
-    max: 8
+    max: 3
     random: uniform
 
   # speed of object traveled % of the screen in one series
   # if frame is not a square, smallest dimension will be considered
   speed:
     min: 30
-    max: 50
+    max: 90
     random: uniform
 
   # determines the direction of the motion
@@ -69,7 +69,7 @@ Objects:
     random: uniform
 
   # method: line/gauss
-  method: line
+  method: gauss
 
   # streak properties
   # applied only when method is line
@@ -79,7 +79,7 @@ Objects:
     random: uniform
 
 Clusters:
-  enable: True
+  enable: False
 
   count:
     min: 1
@@ -115,7 +115,7 @@ Clusters:
     random: uniform
 
   # method: line/gauss
-  method: line
+  method: gauss
 
   # streak properties
   # applied only when method is line
@@ -135,10 +135,7 @@ Bias:
     enable: False
 
 HotPixel:
-    count:
-      min: 10
-      max: 15
-      random: uniform*
+    count: 15
 
     brightness:
       min: 5000
@@ -146,3 +143,28 @@ HotPixel:
       random: uniform
 
     enable: True
+
+CosmicRays:
+  count:
+    min: 10
+    max: 50
+    random: uniform
+
+  brightness:
+    min: 10000
+    max: 65000
+    random: uniform
+
+  # pixel count for worms and tracks
+  pixelCount:
+    min: 10
+    max: 50
+    random: uniform
+
+  # pixel count for spots
+  spotPixelCount:
+    min: 1
+    max: 10
+    random: uniform
+
+  enable: False
