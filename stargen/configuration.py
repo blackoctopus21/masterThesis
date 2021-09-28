@@ -2,6 +2,14 @@ from dataclasses import dataclass
 import random
 import yaml
 
+@dataclass
+class DataFile:
+    enabled: bool
+    file: str
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
 
 @dataclass
 class Value:
@@ -55,6 +63,7 @@ class Stars:
     method: str
     length: Value
     alpha: Value
+    realData: DataFile
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -63,6 +72,7 @@ class Stars:
         self.fwhm = Value(**self.fwhm)
         self.length = Value(**self.length)
         self.alpha = Value(**self.alpha)
+        self.realData = DataFile(**self.realData)
 
 
 @dataclass
@@ -152,16 +162,17 @@ class CosmicRays:
 
 @dataclass
 class Configuration:
+    realData: DataFile
     numberOfSeries: int
     numberOfFramesInOneSeries: int
     SizeX: int
     SizeY: int
-    Stars: Stars
-    Objects: Objects
-    Clusters: Clusters
     dataFile: str
     plot: bool
     saveImages: bool
+    Stars: Stars
+    Objects: Objects
+    Clusters: Clusters
     Noise: Noise
     Bias: Bias
     HotPixel: HotPixel
@@ -169,6 +180,7 @@ class Configuration:
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
+        self.realData = DataFile(**self.realData)
         self.Stars = Stars(**self.Stars)
         self.Objects = Objects(**self.Objects)
         self.Clusters = Clusters(**self.Clusters)

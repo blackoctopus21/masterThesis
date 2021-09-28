@@ -1,12 +1,39 @@
+# indicates whether to read configuration of stars and object from file
+# number of stars, their positions and brightness wil be determined from the file
+# stars will be drawn as streaks and their fwhm, length, alpha will be computed from the config
+# object will be drawn as a point and his fwhm will be computed from the config
+realData:
+  enabled: True
+  file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24
+
+# number of generated series
 numberOfSeries: 1
+
+# number of frames in one series
+# if realData is enabled number of frames depends on the object file and this value is not used
 numberOfFramesInOneSeries: 5
-SizeX: 500
-SizeY: 500
+
+# dimensions of the image
+SizeX: 1024
+SizeY: 1024
+
+# destination where to save files
 dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  #
-plot: True
+
+# indicates whether to plot images
+plot: False
+
+# indicates whether to save FITS images
 saveImages: True
 
 Stars:
+  # indicates whether to use real data from the file
+  # number of stars, their positions and brightness will be determined from the file
+  # fwhm, length, alpha and drawing method will be computed using values in configuration
+  realData:
+    enabled: True
+    file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24\00040A_2_R-0001_m_s.tsv
+
   count:
     min: 10
     max: 30
@@ -23,7 +50,7 @@ Stars:
     random: uniform
 
   # method: line/gauss
-  method: gauss
+  method: line
 
   # streak properties
   # applied only when method is line
@@ -38,7 +65,7 @@ Stars:
     random: uniform*
 
 Objects:
-  enable: False
+  enable: True
 
   count:
     min: 1
@@ -127,7 +154,7 @@ Clusters:
 Noise:
     mean: 10
     std: 7
-    enable: False
+    enable: True
 
 Bias:
     value: 20
@@ -151,8 +178,8 @@ CosmicRays:
     random: uniform
 
   brightness:
-    min: 10000
-    max: 65000
+    min: 1000
+    max: 5000
     random: uniform
 
   # pixel count for worms and tracks
@@ -167,4 +194,4 @@ CosmicRays:
     max: 10
     random: uniform
 
-  enable: False
+  enable: True

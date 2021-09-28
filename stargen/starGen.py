@@ -8,8 +8,11 @@ from random import randrange as rr
 import random
 import os
 import time
+
 import configuration
 from tqdm import tqdm
+
+import matplotlib.pyplot as plt
 
 
 @dataclass
@@ -39,10 +42,9 @@ class Object:
     y: int
     brightness: int
     fwhm: int
-    positions: list
     length: int
     alpha: int
-
+    positions: list
     isCluster: bool
 
     def toTSV(self, pos):
@@ -64,16 +66,87 @@ class StarGenerator:
         self.neighbourhood4 = [[0, 1], [1, 0], [0, -1], [-1, 0]]
         self.neighbourhood8 = self.neighbourhood4 + [[1, 1], [-1, -1], [1, -1], [-1, 1]]
 
+    def generateOneSeriesFromFile(self):
+
+        def getStarFileName(filename):
+            index = filename.find('_a_m')
+            # if we cant find substring it means that this name doesnt need trimming
+            if index < 0:
+                return f'{filename}.tsv'
+
+            newFilename = filename[:index]
+            return f'{newFilename}.tsv'
+
+        t = int(time.time())
+
+        # read files from directory
+        directory = self.config.realData.file
+        starFileNames0 = self.getFilesInDir(directory, '_m_s.tsv')
+
+        # there should be only one file for object positions
+        objectFileName = self.getFilesInDir(directory, '.txt')[0]
+
+        # compute positions of object
+        # the brightness of the object changes from frame to frame
+        # therefore we cant represent it as one object with positions
+        # instead its multiple objects, one object for one frame
+        objectData = self.getDataFromObjectFile(objectFileName)
+        objectPositions = objectData['objects']
+        starFileNames = objectData['filenames']
+
+        # create blank image
+        blankImage = np.zeros((self.config.SizeY, self.config.SizeX))
+
+        # here we add all defects and noises that needs to be same for every frame in series
+        # bias, dark current, flat field, diffuse sources
+
+        images = []
+        for i in range(len(objectPositions)):
+            image = blankImage.copy()
+
+            # stars change in each frame
+            # we need to read the corresponding file for this frame
+            # each star will be drawn as a streak
+            starFileName = getStarFileName(f'{directory}\\{starFileNames[i]}')
+            stars = self.computeStarsFromFile(starFileName)
+            for s in stars:
+                self.drawObject(s, image, 'line')
+
+            # here we add all defects and noises that are different for each frame
+            # photon noise, cosmics, readout
+            self.addNoise(image)
+            self.addCosmicRays(image)
+
+            # there is only one object for each frame
+            # object will be drawn as a point
+            obj = objectPositions[i]
+            self.drawObject(obj, image, 'gauss')
+
+            images.append(image)
+
+        # here we add all defects and noises that needs to be same for every frame in series
+        # and cant be added before generating objects because they set value and not add it.
+        # hot pixels, dead pixels, dead columns, traps
+        self.addHotPixels(images)
+
+        self.saveSeriesToFile(images, objectPositions, t)
+
+        if self.config.plot:
+            self.plotSeries(images)
+
     def generateSeries(self):
         for i in tqdm(range(self.config.numberOfSeries)):
-            self.generateOneSeries()
+            if self.config.realData.enabled:
+                self.generateOneSeriesFromFile()
+            else:
+                self.generateOneSeries()
 
     def generateOneSeries(self):
 
         t = int(time.time())
 
         objects = self.generateObjects()
-        stars = self.generateStars()
+        stars = self.getStars()
         clusters = self.generateClusters()
 
         # converge all objects together
@@ -141,9 +214,71 @@ class StarGenerator:
             df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
             df.to_csv(f"{directory}/objects.tsv", index=False)
 
+    def getFilesInDir(self, directory, suffix):
+        files = os.listdir(directory)
+
+        filteredFiles = []
+        for file in files:
+            if file.endswith(suffix):
+                filteredFiles.append(f'{directory}/{file}')
+
+        return filteredFiles
+
+    def readObjectFile(self, filename):
+        file = open(filename, "r")
+
+        header = []
+        data = []
+        for line in file:
+            # to remove whitespace
+            line = line.strip()
+
+            # header of the table starts and ends with '--'
+            if line.startswith('--'):
+                # to remove '--' at the start and end of the line
+                line = line.strip('-')
+                header = line.split('\t')
+                continue
+
+            # after the header there is a table with object positions
+            if len(header) > 0 and len(line) > 0:
+                splitLine = line.split('\t')
+
+                # some elements after splitting contain whitespaces
+                strippedLine = [s.strip() for s in splitLine]
+
+                # add stripped and split values to data
+                data.append(strippedLine)
+
+        df = pd.DataFrame(np.array(data), columns=header)
+
+        # chose the specific columns
+        data = df[['FILENAME','X', 'Y', 'ADU']]
+
+        # convert all columns to numeric
+        data[['X', 'Y', 'ADU']] = data[['X', 'Y', 'ADU']].apply(pd.to_numeric)
+
+        return data
+
+    def readStarsFile(self, filename):
+        # read all data in TSV file
+        tsvData = pd.read_csv(filename, sep='\t')
+
+        # filter rows which are streaks (contains '|s' substring in column 'kurt')
+        filteredData = tsvData.loc[tsvData['kurt'].str.endswith('|s'), :]
+
+        # chose the specific columns
+        data = filteredData[['cent.x', 'cent.y', 'sum']]
+
+        # convert all columns to numeric
+        numericData = data.apply(pd.to_numeric)
+
+        return numericData
+
     def plotSeries(self, images):
-        numberOfRows = self.config.numberOfFramesInOneSeries // 4
-        if self.config.numberOfFramesInOneSeries % 4 != 0:
+        imagesCount = len(images)
+        numberOfRows = imagesCount // 4
+        if imagesCount % 4 != 0:
             numberOfRows += 1
 
         fig, axs = plt.subplots(numberOfRows, 4)
@@ -166,7 +301,7 @@ class StarGenerator:
     def saveSeriesToFile(self, images, objects, t):
         directory = os.path.join(self.config.dataFile, f'fits{t}')
         os.mkdir(directory)
-        for i in range(self.config.numberOfFramesInOneSeries):
+        for i in range(len(images)):
             name = f'{directory}/{i}'
             self.saveImgToFits(images[i], name)
 
@@ -174,10 +309,38 @@ class StarGenerator:
             for obj in objects:
                 print(' '.join(list(map(str, obj.positions))), file=f)
 
+    def computeStarsFromFile(self, filename):
+        stars = []
+
+        data = self.readStarsFile(filename)
+        for index, row in data.iterrows():
+            star = self.starFromFile(row['cent.x'], row['cent.y'], row['sum'])
+            stars.append(star)
+
+        return stars
+
+    def getDataFromObjectFile(self, filename):
+        objects = []
+        filenames = []
+
+        data = self.readObjectFile(filename)
+        for index, row in data.iterrows():
+            starFileName = row['FILENAME']
+            filenames.append(starFileName)
+
+            obj = self.objectFromFile(row['X'], row['Y'], row['ADU'])
+            objects.append(obj)
+
+        return {'objects': objects, 'filenames': filenames}
+
+    def getStars(self):
+        if self.config.Stars.realData.enabled:
+            return self.computeStarsFromFile(self.config.Stars.realData.file)
+        else:
+            return self.generateStars()
+
     def generateStars(self):
-
         stars = [self.randomStar() for i in range(self.config.Stars.count.value())]
-
         return stars
 
     def generateObjects(self):
@@ -194,6 +357,18 @@ class StarGenerator:
 
         return clusters
 
+    def starFromFile(self, x, y, brightness):
+        fwhm = self.config.Stars.fwhm.value()
+        length = self.config.Stars.length.value()
+        alpha = self.config.Stars.alpha.value()
+
+        return Star(x=x,
+                    y=y,
+                    brightness=brightness,
+                    fwhm=fwhm,
+                    length=length,
+                    alpha=alpha)
+
     def randomStar(self):
         x = rr(self.config.SizeX)
         y = rr(self.config.SizeY)
@@ -209,6 +384,20 @@ class StarGenerator:
                     length=length,
                     alpha=alpha)
 
+    def objectFromFile(self, x, y, brightness):
+        fwhm = self.config.Objects.fwhm.value()
+
+        obj = Object(x=x,
+                     y=y,
+                     brightness=brightness,
+                     fwhm=fwhm,
+                     length=0,
+                     alpha=0,
+                     positions=[[x, y]],
+                     isCluster=False)
+
+        return obj
+
     def randomObject(self):
         brightness = self.config.Objects.brightness.value()
         fwhm = self.config.Objects.fwhm.value()
@@ -222,9 +411,9 @@ class StarGenerator:
                      y=points[0][1],
                      brightness=brightness,
                      fwhm=fwhm,
-                     positions=points,
                      length=length,
                      alpha=alpha,
+                     positions=points,
                      isCluster=False)
 
         return obj
@@ -238,9 +427,9 @@ class StarGenerator:
                      y=points[0][1],
                      brightness=brightness,
                      fwhm=fwhm,
-                     positions=points,
                      length=length,
                      alpha=alpha,
+                     positions=points,
                      isCluster=True)
 
         return obj
@@ -497,7 +686,6 @@ class StarGenerator:
 
             for _ in range(count):
                 cosmicType = random.choice(self.config.CosmicRays.cosmicTypes)
-                # cosmicType = 'spot'
 
                 if cosmicType == 'spot':
                     self.addSpot(image)
@@ -646,10 +834,6 @@ class StarGenerator:
 
         return [[x, 0], [0, y]]
 
-    def isDiagonal(self, direction):
-        x, y = direction
-        return x != 0 and y != 0
-
     def isWithinImage(self, pos):
         return 0 <= pos[0] < self.config.SizeX and 0 <= pos[1] < self.config.SizeY
 
@@ -659,8 +843,6 @@ class StarGenerator:
 
     def flip(self, pos):
         return pos[1], pos[0]
-
-
 
 
 class TrainingDataGenerator(StarGenerator):
