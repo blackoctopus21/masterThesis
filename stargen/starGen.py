@@ -1,7 +1,6 @@
-from dataclasses import dataclass
-
-import numpy as np
 import math
+from dataclasses import dataclass
+import numpy as np
 import pandas as pd
 from astropy.io import fits
 from random import randrange as rr
@@ -56,163 +55,85 @@ class Cluster:
     objects: list
 
 
-class StarGenerator:
+@dataclass
+class ObjectWithFile:
+    obj: Object
+    filename: str
+
+
+@dataclass
+class TSVObject:
+    pixelsX: list
+    pixelsY: list
+    type: str
+
+    boundingBox: BoundingBox = None
+
+    def boundingBox(self):
+        if self.boundingBox is None:
+            minX = np.amin(self.pixelsX)
+            maxX = np.amax(self.pixelsX)
+            minY = np.amin(self.pixelsY)
+            maxY = np.amax(self.pixelsY)
+
+            self.boundingBox = BoundingBox(minX, maxX, minY, maxY)
+
+        return self.boundingBox
+
+
+'''
+    util class with helping functions
+'''
+
+
+class Utils:
     config: configuration.Configuration
-    neighbourhood4: list
-    neighbourhood8: list
 
     def __init__(self, config):
-        self.config: configuration.Configuration = config
-        self.neighbourhood4 = [[0, 1], [1, 0], [0, -1], [-1, 0]]
-        self.neighbourhood8 = self.neighbourhood4 + [[1, 1], [-1, -1], [1, -1], [-1, 1]]
+        self.config = config
 
-    def generateOneSeriesFromFile(self):
+    def axis(self, r, c, axis):
+        if axis.ndim > 1:
+            return axis[r, c]
+        else:
+            return axis[c]
 
-        def getStarFileName(filename):
-            index = filename.find('_a_m')
-            # if we cant find substring it means that this name doesnt need trimming
-            if index < 0:
-                return f'{filename}.tsv'
+    def randomPosition(self, boundingBox=None):
+        if boundingBox is None:
+            x = rr(self.config.SizeX)
+            y = rr(self.config.SizeY)
+        else:
+            x = rr(boundingBox.minX, boundingBox.maxX)
+            y = rr(boundingBox.minY, boundingBox.maxY)
 
-            newFilename = filename[:index]
-            return f'{newFilename}.tsv'
+        return np.array([x, y])
 
-        t = int(time.time())
+    def createBoundingBox(self, distanceX, distanceY) -> BoundingBox:
+        minX = 0 if distanceX > 0 else -distanceX
+        maxX = self.config.SizeX - distanceX if distanceX > 0 else self.config.SizeX
 
-        # read files from directory
-        directory = self.config.realData.file
-        starFileNames0 = self.getFilesInDir(directory, '_m_s.tsv')
+        minY = 0 if distanceY > 0 else -distanceY
+        maxY = self.config.SizeY - distanceY if distanceY > 0 else self.config.SizeY
 
-        # there should be only one file for object positions
-        objectFileName = self.getFilesInDir(directory, '.txt')[0]
+        return BoundingBox(minX, maxX, minY, maxY)
 
-        # compute positions of object
-        # the brightness of the object changes from frame to frame
-        # therefore we cant represent it as one object with positions
-        # instead its multiple objects, one object for one frame
-        objectData = self.getDataFromObjectFile(objectFileName)
-        objectPositions = objectData['objects']
-        starFileNames = objectData['filenames']
+    def isWithinImage(self, pos):
+        return 0 <= pos[0] < self.config.SizeX and 0 <= pos[1] < self.config.SizeY
 
-        # create blank image
-        blankImage = np.zeros((self.config.SizeY, self.config.SizeX))
+    def flip(self, pos):
+        return pos[1],pos[0]
 
-        # here we add all defects and noises that needs to be same for every frame in series
-        # bias, dark current, flat field, diffuse sources
 
-        images = []
-        for i in range(len(objectPositions)):
-            image = blankImage.copy()
+'''
+    reads files which contain real data 
+'''
 
-            # stars change in each frame
-            # we need to read the corresponding file for this frame
-            # each star will be drawn as a streak
-            starFileName = getStarFileName(f'{directory}\\{starFileNames[i]}')
-            stars = self.computeStarsFromFile(starFileName)
-            for s in stars:
-                self.drawObject(s, image, 'line')
 
-            # here we add all defects and noises that are different for each frame
-            # photon noise, cosmics, readout
-            self.addNoise(image)
-            self.addCosmicRays(image)
+class FileReader:
+    config: configuration.Configuration
 
-            # there is only one object for each frame
-            # object will be drawn as a point
-            obj = objectPositions[i]
-            self.drawObject(obj, image, 'gauss')
-
-            images.append(image)
-
-        # here we add all defects and noises that needs to be same for every frame in series
-        # and cant be added before generating objects because they set value and not add it.
-        # hot pixels, dead pixels, dead columns, traps
-        self.addHotPixels(images)
-
-        self.saveSeriesToFile(images, objectPositions, t)
-
-        if self.config.plot:
-            self.plotSeries(images)
-
-    def generateSeries(self):
-        for i in tqdm(range(self.config.numberOfSeries)):
-            if self.config.realData.enabled:
-                self.generateOneSeriesFromFile()
-            else:
-                self.generateOneSeries()
-
-    def generateOneSeries(self):
-
-        t = int(time.time())
-
-        objects = self.generateObjects()
-        stars = self.getStars()
-        clusters = self.generateClusters()
-
-        # converge all objects together
-        allObjects = objects
-        for cl in clusters:
-            allObjects.extend(cl.objects)
-
-        self.saveTSV(stars, allObjects, t)
-
-        if self.config.saveImages:
-
-            stars_image = np.zeros((self.config.SizeY, self.config.SizeX))
-            for s in stars:
-                self.drawObject(s, stars_image, self.config.Stars.method)
-
-            # here we add all defects and noises that needs to be same for every frame in series
-            # bias, dark current, flat field, diffuse sources
-
-            images = []
-            for i in range(self.config.numberOfFramesInOneSeries):
-                image = stars_image.copy()
-
-                # here we add all defects and noises that are different for each frame
-                # photon noise, cosmics, readout
-                self.addNoise(image)
-                self.addCosmicRays(image)
-
-                for obj in allObjects:
-                    method = self.config.Clusters.method if obj.isCluster else self.config.Objects.method
-                    self.drawObject(obj, image, method)
-                    obj.x, obj.y = (obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0],
-                                    obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1])
-
-                images.append(image)
-
-            # here we add all defects and noises that needs to be same for every frame in series
-            # and cant be added before generating objects because they set value and not add it.
-            # hot pixels, dead pixels, dead columns, traps
-            self.addHotPixels(images)
-
-            self.saveSeriesToFile(images, allObjects, t)
-
-            if self.config.plot:
-                self.plotSeries(images)
-
-    def drawObject(self, obj, image, method):
-        if method == 'line':
-            self.drawLineGauss(obj, image)
-        elif method == 'gauss':
-            self.drawStarGaus(obj, image)
-
-    def saveTSV(self, stars, objects, t):
-
-        directory = os.path.join(self.config.dataFile, f'tsv{t}')
-        os.mkdir(directory)
-
-        for i in range(self.config.numberOfFramesInOneSeries):
-            data = [s.toTSV() for s in stars] + [o.toTSV(i) for o in objects]
-            if len(data) > 0:
-                df = pd.DataFrame(np.array(data), columns=["x", "y", "brightness", "fwhm", "is_object"])
-                df.to_csv(f"{directory}/data_{i + 1:04d}.tsv", index=False, sep='\t')
-
-        data = [[i] + o.toTSV(i) for o in objects for i in range(self.config.numberOfFramesInOneSeries)]
-        if len(data) > 0:
-            df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
-            df.to_csv(f"{directory}/objects.tsv", index=False)
+    def __init__(self, config):
+        self.config = config
 
     def getFilesInDir(self, directory, suffix):
         files = os.listdir(directory)
@@ -252,13 +173,12 @@ class StarGenerator:
 
         df = pd.DataFrame(np.array(data), columns=header)
 
-        # chose the specific columns
-        data = df[['FILENAME','X', 'Y', 'ADU']]
-
         # convert all columns to numeric
-        data[['X', 'Y', 'ADU']] = data[['X', 'Y', 'ADU']].apply(pd.to_numeric)
+        df[['RA[deg]', 'DEC[deg]', 'X', 'Y', 'MJD', 'MAG', 'ERROR_MAG', 'ADU', 'ERROR_ADU', 'EXP_TIME']] = df[
+            ['RA[deg]', 'DEC[deg]', 'X', 'Y', 'MJD', 'MAG', 'ERROR_MAG', 'ADU', 'ERROR_ADU', 'EXP_TIME']].apply(
+            pd.to_numeric)
 
-        return data
+        return df
 
     def readStarsFile(self, filename):
         # read all data in TSV file
@@ -267,47 +187,20 @@ class StarGenerator:
         # filter rows which are streaks (contains '|s' substring in column 'kurt')
         filteredData = tsvData.loc[tsvData['kurt'].str.endswith('|s'), :]
 
-        # chose the specific columns
-        data = filteredData[['cent.x', 'cent.y', 'sum']]
-
         # convert all columns to numeric
-        numericData = data.apply(pd.to_numeric)
+        filteredData[['cent.x', 'cent.y', 'snr', 'iter', 'sum', 'mean', 'var', 'std', 'skew', 'bckg']] = filteredData[
+            ['cent.x', 'cent.y', 'snr', 'iter', 'sum', 'mean', 'var', 'std', 'skew', 'bckg']].apply(pd.to_numeric)
 
-        return numericData
+        return filteredData
 
-    def plotSeries(self, images):
-        imagesCount = len(images)
-        numberOfRows = imagesCount // 4
-        if imagesCount % 4 != 0:
-            numberOfRows += 1
+    def getFullStarFileName(self, directory, filename):
+        index = filename.find('_a_m')
+        # if we cant find substring it means that this name doesnt need trimming
+        if index < 0:
+            return f'{directory}\\{filename}.tsv'
 
-        fig, axs = plt.subplots(numberOfRows, 4)
-        for r in range(numberOfRows):
-            for c in range(4):
-                index = 4 * r + c
-                if index < len(images):
-                    self.axis(r, c, axs).imshow(images[index], cmap='gray', vmin=0, vmax=50)
-                    self.axis(r, c, axs).set_title(f'image {index}')
-                else:
-                    self.axis(r, c, axs).set_axis_off()
-        plt.show()
-
-    def axis(self, r, c, axis):
-        if axis.ndim > 1:
-            return axis[r, c]
-        else:
-            return axis[c]
-
-    def saveSeriesToFile(self, images, objects, t):
-        directory = os.path.join(self.config.dataFile, f'fits{t}')
-        os.mkdir(directory)
-        for i in range(len(images)):
-            name = f'{directory}/{i}'
-            self.saveImgToFits(images[i], name)
-
-        with open(f'{directory}/objects.txt', 'w') as f:
-            for obj in objects:
-                print(' '.join(list(map(str, obj.positions))), file=f)
+        newFilename = filename[:index]
+        return f'{directory}\\{newFilename}.tsv'
 
     def computeStarsFromFile(self, filename):
         stars = []
@@ -319,43 +212,15 @@ class StarGenerator:
 
         return stars
 
-    def getDataFromObjectFile(self, filename):
+    def computeObjectsFromFile(self, filename):
         objects = []
-        filenames = []
 
         data = self.readObjectFile(filename)
         for index, row in data.iterrows():
-            starFileName = row['FILENAME']
-            filenames.append(starFileName)
-
-            obj = self.objectFromFile(row['X'], row['Y'], row['ADU'])
+            obj = self.objectFromFile(row['FILENAME'], row['X'], row['Y'], row['ADU'])
             objects.append(obj)
 
-        return {'objects': objects, 'filenames': filenames}
-
-    def getStars(self):
-        if self.config.Stars.realData.enabled:
-            return self.computeStarsFromFile(self.config.Stars.realData.file)
-        else:
-            return self.generateStars()
-
-    def generateStars(self):
-        stars = [self.randomStar() for i in range(self.config.Stars.count.value())]
-        return stars
-
-    def generateObjects(self):
-        objects = []
-        if self.config.Objects.enable:
-            objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
-
         return objects
-
-    def generateClusters(self):
-        clusters = []
-        if self.config.Clusters.enable:
-            clusters = [self.generateOneCluster() for i in range(self.config.Clusters.count.value())]
-
-        return clusters
 
     def starFromFile(self, x, y, brightness):
         fwhm = self.config.Stars.fwhm.value()
@@ -369,22 +234,7 @@ class StarGenerator:
                     length=length,
                     alpha=alpha)
 
-    def randomStar(self):
-        x = rr(self.config.SizeX)
-        y = rr(self.config.SizeY)
-        brightness = self.config.Stars.brightness.value()
-        fwhm = self.config.Stars.fwhm.value()
-        length = self.config.Stars.length.value()
-        alpha = self.config.Stars.alpha.value()
-
-        return Star(x=x,
-                    y=y,
-                    brightness=brightness,
-                    fwhm=fwhm,
-                    length=length,
-                    alpha=alpha)
-
-    def objectFromFile(self, x, y, brightness):
+    def objectFromFile(self, filename, x, y, brightness):
         fwhm = self.config.Objects.fwhm.value()
 
         obj = Object(x=x,
@@ -396,103 +246,29 @@ class StarGenerator:
                      positions=[[x, y]],
                      isCluster=False)
 
-        return obj
+        objWithFilename = ObjectWithFile(obj, filename)
 
-    def randomObject(self):
-        brightness = self.config.Objects.brightness.value()
-        fwhm = self.config.Objects.fwhm.value()
-        length = self.config.Objects.length.value()
-        alpha = self.config.Objects.alpha.value()
+        return objWithFilename
 
-        speed = self.config.Objects.speed.value() / 100
-        points = self.generateObjectPoints(alpha, speed)
 
-        obj = Object(x=points[0][0],
-                     y=points[0][1],
-                     brightness=brightness,
-                     fwhm=fwhm,
-                     length=length,
-                     alpha=alpha,
-                     positions=points,
-                     isCluster=False)
+'''
+    draws gauss point and line
+'''
 
-        return obj
 
-    def clusterObject(self, length, alpha, speed):
-        brightness = self.config.Objects.brightness.value()
-        fwhm = self.config.Objects.fwhm.value()
-        points = self.generateObjectPoints(alpha, speed)
+class DrawingTool:
 
-        obj = Object(x=points[0][0],
-                     y=points[0][1],
-                     brightness=brightness,
-                     fwhm=fwhm,
-                     length=length,
-                     alpha=alpha,
-                     positions=points,
-                     isCluster=True)
+    def __init__(self, config):
+        self.config = config
 
-        return obj
-
-    def generateObjectPoints(self, alpha, speed):
-        # convert degrees to radians
-        alphaRad = np.deg2rad(alpha)
-
-        # compute shift vector from angle (normalized)
-        shift = np.array([np.cos(alphaRad), np.sin(alphaRad)])
-
-        minDimension = np.min([self.config.SizeY, self.config.SizeX])
-
-        # compute total distance traveled
-        totalDistX, totalDistY = (np.floor(minDimension * speed * shift[0]),
-                                  np.floor(minDimension * speed * shift[1]))
-
-        stepX, stepY = (totalDistX // self.config.numberOfFramesInOneSeries,
-                        totalDistY // self.config.numberOfFramesInOneSeries)
-
-        # create bounding box limiting object's position so it doesnt leave image
-        boundingBox = self.createBoundingBox(totalDistX, totalDistY)
-
-        startPoint = self.randomPosition(boundingBox)
-        points = [(startPoint[0] + i * stepX, startPoint[1] + i * stepY) for i in
-                  range(self.config.numberOfFramesInOneSeries)]
-
-        return points
-
-    def generateOneCluster(self):
-        # in the cluster all objects have same speed,length,alpha
-
-        length = self.config.Clusters.length.value()
-        alpha = self.config.Clusters.alpha.value()
-        speed = self.config.Clusters.speed.value() / 100
-
-        clusterObjects = []
-        for i in range(self.config.Clusters.objectCountPerCluster.value()):
-            obj = self.clusterObject(length, alpha, speed)
-            clusterObjects.append(obj)
-
-        return Cluster(clusterObjects)
-
-    def randomPosition(self, boundingBox=None):
-        if boundingBox is None:
-            x = rr(self.config.SizeX)
-            y = rr(self.config.SizeY)
-        else:
-            x = rr(boundingBox.minX, boundingBox.maxX)
-            y = rr(boundingBox.minY, boundingBox.maxY)
-
-        return np.array([x, y])
-
-    def createBoundingBox(self, distanceX, distanceY) -> BoundingBox:
-        minX = 0 if distanceX > 0 else -distanceX
-        maxX = self.config.SizeX - distanceX if distanceX > 0 else self.config.SizeX
-
-        minY = 0 if distanceY > 0 else -distanceY
-        maxY = self.config.SizeY - distanceY if distanceY > 0 else self.config.SizeY
-
-        return BoundingBox(minX, maxX, minY, maxY)
+    def bigaus(self, x, y, k, sigma):
+        return k * np.exp(-0.5 * (x ** 2 + y ** 2) / sigma)
 
     def drawStarGaus(self, star, image):
+
+        # for the purposes ob TSV object
+        pixelsX = []
+        pixelsY = []
 
         sigma = (star.fwhm / 2.355)
         sigma2 = sigma ** 2
@@ -507,7 +283,13 @@ class StarGenerator:
 
         for y in range(upy, dwy + 1):
             for x in range(upx, dwx):
-                image[y, x] += star.brightness * self.bigaus(star.x - x + 0.5, star.y - y + 0.5, k, sigma2)
+                value = star.brightness * self.bigaus(star.x - x + 0.5, star.y - y + 0.5, k, sigma2)
+                image[y, x] += value
+
+                pixelsX.append(x)
+                pixelsY.append(y)
+
+        return TSVObject(pixelsX, pixelsY, 'point')
 
     def drawLineGauss(self, star, image):
         def calcPosition(x, y, linePointA, linePointB):
@@ -562,6 +344,10 @@ class StarGenerator:
             AB = linePointB - linePointA
             return linePointA + (np.dot(AP, AB) / np.dot(AB, AB)) * AB
 
+        # for the purposes ob TSV object
+        pixelsX = []
+        pixelsY = []
+
         # center of object
         center = np.array([star.x, star.y])
 
@@ -612,7 +398,7 @@ class StarGenerator:
 
         newImage = np.zeros_like(image)
         for y in range(upy, dwy + 1):
-            for x in range(upx, dwx):
+            for x in range(upx, dwx+1):
                 # left of left line
                 if checkLeft(x, y, l1, l2):
                     newImage[y, x] += self.bigaus(leftP[0] - x + 0.5, leftP[1] - y + 0.5, 1, sigma2)
@@ -627,13 +413,69 @@ class StarGenerator:
                     newImage[y, x] += self.bigaus(center[0] - projected[0] + 0.5, center[1] - projected[1] + 0.5, 1,
                                                   sigma2)
 
+                pixelsX.append(x)
+                pixelsY.append(y)
+
         sumImg = np.sum(newImage)
         newImage = star.brightness * (newImage / sumImg)
 
         image += newImage
 
-    def bigaus(self, x, y, k, sigma):
-        return k * np.exp(-0.5 * (x ** 2 + y ** 2) / sigma)
+        return TSVObject(pixelsX, pixelsY, 'line')
+
+
+'''
+    draws noises and defects
+'''
+
+
+class DefectDrawingTool:
+    config: configuration.Configuration
+    utils: Utils
+
+    def __init__(self, config):
+        self.config = config
+        self.utils = Utils(config)
+
+        self.neighbourhood4 = [[0, 1], [1, 0], [0, -1], [-1, 0]]
+        self.neighbourhood8 = self.neighbourhood4 + [[1, 1], [-1, -1], [1, -1], [-1, 1]]
+
+    '''
+        this adds all noises and defects that are same for each image and can be added at the beginning
+        this includes: bias, dark current, flat field, diffuse sources       
+    '''
+
+    def addInitialDefects(self, image):
+        # TODO
+        pass
+
+    '''
+        this add all noises and defects that are different for each image 
+        this includes: photon noise, cosmics, readout
+    '''
+
+    def addChangingDefects(self, image):
+        objectsTSV = []
+
+        self.addNoise(image)
+        objectsTSV.extend(self.addCosmicRays(image))
+
+        return objectsTSV
+
+    '''
+        this adds all defects and noises that need to be same for every frame in series
+        and cant be added before generating objects because they set value and not add it
+        this includes: hot pixels, dead pixels, dead columns, traps
+
+        the input is not one image but list of images
+    '''
+
+    def addFinalDefects(self, images):
+        objectsTSV = []
+
+        objectsTSV.extend(self.addHotPixels(images))
+
+        return objectsTSV
 
     def addNoise(self, image):
         if self.config.Noise.enable:
@@ -664,6 +506,8 @@ class StarGenerator:
             image += bias_image
 
     def addHotPixels(self, images):
+        objectsTSV = []
+
         if self.config.HotPixel.enable:
             # We want the hot pixels to always be in the same places
             # (at least for the same image size) but also want them to appear to be randomly
@@ -676,11 +520,16 @@ class StarGenerator:
             x = rng.randint(0, self.config.SizeX - 1, size=count)
             y = rng.randint(0, self.config.SizeY - 1, size=count)
 
-            for image in images:
-                for i in range(count):
+            for i in range(count):
+                objectsTSV.append(TSVObject([x[i]], [y[i]], 'hp'))
+                for image in images:
                     image[tuple([y[i], x[i]])] = self.config.HotPixel.brightness.value()
 
+        return objectsTSV
+
     def addCosmicRays(self, image):
+        objectsTSV = []
+
         if self.config.CosmicRays.enable:
             count = self.config.CosmicRays.count.value()
 
@@ -688,19 +537,25 @@ class StarGenerator:
                 cosmicType = random.choice(self.config.CosmicRays.cosmicTypes)
 
                 if cosmicType == 'spot':
-                    self.addSpot(image)
+                    objectsTSV.append(self.addSpot(image))
                 elif cosmicType == 'worm':
-                    self.addWorm(image)
+                    objectsTSV.append(self.addWorm(image))
                 elif cosmicType == 'track':
-                    self.addTrack(image)
+                    objectsTSV.append(self.addTrack(image))
+
+        return objectsTSV
 
     def addSpot(self, image):
         newImage = np.zeros_like(image)
         pixelCount = self.config.CosmicRays.spotPixelCount.value()
 
+        # for the purposes of TSV Object
+        pixelsX = []
+        pixelsY = []
+
         # compute center point
-        lastPixel = self.randomPosition()
-        image[self.flip(lastPixel)] = self.config.CosmicRays.brightness.value()
+        lastPixel = self.utils.randomPosition()
+        image[lastPixel[::-1]] = self.config.CosmicRays.brightness.value()
 
         numberOfFilledPixels = 1
         while numberOfFilledPixels < pixelCount:
@@ -708,18 +563,20 @@ class StarGenerator:
             position = lastPixel + direction
 
             # if position is not within image find a new direction
-            if not self.isWithinImage(position):
+            if not self.utils.isWithinImage(position):
                 print("skipping out of image")
                 lastPixel = position
                 continue
 
             # if position is already filled find a new direction
-            if newImage[self.flip(position)] > 0:
+            if newImage[self.utils.flip(position)] > 0:
                 print("skipping already filled")
                 lastPixel = position
                 continue
 
-            image[self.flip(position)] = self.config.CosmicRays.brightness.value()
+            image[self.utils.flip(position)] = self.config.CosmicRays.brightness.value()
+            pixelsX.append(position[0])
+            pixelsY.append(position[1])
 
             numberOfFilledPixels += 1
             # here we dont update the lastPixel because we want it centered around the startPoint
@@ -727,12 +584,18 @@ class StarGenerator:
 
         image += newImage
 
+        return TSVObject(pixelsX, pixelsY, 'cosmic')
+
     def addWorm(self, image):
         newImage = np.zeros_like(image)
         pixelCount = self.config.CosmicRays.pixelCount.value()
 
+        # for the purposes of TSV Object
+        pixelsX = []
+        pixelsY = []
+
         # compute start point and random direction
-        lastPixel = self.randomPosition()
+        lastPixel = self.utils.randomPosition()
         direction = random.choice(self.neighbourhood8)
 
         numberOfFilledPixels = 0
@@ -752,17 +615,19 @@ class StarGenerator:
                     break
 
                 # if position is not within image break this for loop and find a new direction
-                if not self.isWithinImage(position):
+                if not self.utils.isWithinImage(position):
                     print("skipping out of image")
                     break
 
                 # if position is already filled break this for loop and find new direction
-                if newImage[self.flip(position)] > 0:
+                if newImage[self.utils.flip(position)] > 0:
                     print("skipping already filled")
                     break
 
                 # compute brightness of this point
-                newImage[self.flip(position)] = self.config.CosmicRays.brightness.value()
+                newImage[self.utils.flip(position)] = self.config.CosmicRays.brightness.value()
+                pixelsX.append(position[0])
+                pixelsY.append(position[1])
 
                 # when finished update number of filled pixels and last pixel
                 lastPixel = position
@@ -770,12 +635,18 @@ class StarGenerator:
 
         image += newImage
 
+        return TSVObject(pixelsX, pixelsY, 'cosmic')
+
     def addTrack(self, image):
         newImage = np.zeros_like(image)
         pixelCount = self.config.CosmicRays.pixelCount.value()
 
+        # for the purposes of TSV Object
+        pixelsX = []
+        pixelsY = []
+
         # compute start point and random directions
-        lastPixel = self.randomPosition()
+        lastPixel = self.utils.randomPosition()
         mainDirection = random.choice(self.neighbourhood8)
         secondaryDirection = random.choice(self.allowedDirections(mainDirection))
 
@@ -803,13 +674,15 @@ class StarGenerator:
                     break
 
                 # if position is not within image break this for loop and end while cycle
-                if not self.isWithinImage(position):
+                if not self.utils.isWithinImage(position):
                     outOfImage = True
                     print("skipping out of image")
                     break
 
                 # compute brightness of this point
-                newImage[self.flip(position)] = self.config.CosmicRays.brightness.value()
+                newImage[self.utils.flip(position)] = self.config.CosmicRays.brightness.value()
+                pixelsX.append(position[0])
+                pixelsY.append(position[1])
 
                 # when finished update number of filled pixels and last pixel
                 lastPixel = position
@@ -824,6 +697,8 @@ class StarGenerator:
 
         image += newImage
 
+        return TSVObject(pixelsX, pixelsY, 'cosmic')
+
     def allowedDirections(self, direction):
         x, y = direction
         if x == 0:
@@ -834,15 +709,317 @@ class StarGenerator:
 
         return [[x, 0], [0, y]]
 
-    def isWithinImage(self, pos):
-        return 0 <= pos[0] < self.config.SizeX and 0 <= pos[1] < self.config.SizeY
+
+'''
+    saves data to TSV files
+'''
+
+
+class TSVSaver:
+    config: configuration.Configuration
+
+    def __init__(self, config):
+        self.config = config
+
+
+
+class StarGenerator:
+    config: configuration.Configuration
+    fileReader: FileReader
+    drawingTool: DrawingTool
+    defectTool: DefectDrawingTool
+    utils: Utils
+
+    def __init__(self, config):
+        self.config: configuration.Configuration = config
+        self.fileReader = FileReader(config)
+        self.drawingTool = DrawingTool(config)
+        self.defectTool = DefectDrawingTool(config)
+        self.utils = Utils(config)
+
+    def generateOneSeriesFromFile(self):
+
+        t = int(time.time())
+
+        # read files from directory
+        directory = self.config.realData.file
+
+        # there should be only one file for object positions
+        objectFileName = self.fileReader.getFilesInDir(directory, '.txt')[0]
+
+        # compute positions of object
+        # the brightness of the object changes from frame to frame
+        # therefore we cant represent it as one object with positions
+        # instead its multiple objects, one object for one frame
+        objectsWithFilenames = self.fileReader.computeObjectsFromFile(objectFileName)
+
+        # create blank image
+        blankImage = np.zeros((self.config.SizeY, self.config.SizeX))
+
+        self.defectTool.addInitialDefects(blankImage)
+
+        allObjectsTSV = []
+        images = []
+        for objWithFilename in objectsWithFilenames:
+            objectsTSV = []
+
+            image = blankImage.copy()
+
+            # stars change in each frame
+            # we need to read the corresponding file for this frame
+            # each star will be drawn as a streak
+            starFileName = self.fileReader.getFullStarFileName(directory, objWithFilename.filename)
+            stars = self.fileReader.computeStarsFromFile(starFileName)
+            for s in stars:
+                objectsTSV.append(self.drawObject(s, image, 'line'))
+
+            # there is only one object for each frame
+            # object will be drawn as a point
+            obj = objWithFilename.obj
+            objectsTSV.append(self.drawObject(obj, image, 'gauss'))
+
+            objectsTSV.extend(self.defectTool.addChangingDefects(image))
+
+            images.append(image)
+            allObjectsTSV.append(objectsTSV)
+
+        sameObjectsTSV = self.defectTool.addFinalDefects(images)
+
+        # TODO here I need to save TSV objects somehow
+
+        objects = [objFn.obj for objFn in objectsWithFilenames]
+        self.saveSeriesToFile(images, objects, t)
+
+        if self.config.plot:
+            self.plotSeries(images)
+
+    def generateSeries(self):
+        for _ in tqdm(range(self.config.numberOfSeries)):
+            if self.config.realData.enabled:
+                self.generateOneSeriesFromFile()
+            else:
+                self.generateOneSeries()
+
+    def generateOneSeries(self):
+
+        t = int(time.time())
+
+        objects = self.generateObjects()
+        stars = self.getStars()
+        clusters = self.generateClusters()
+
+        # converge all objects together
+        allObjects = objects
+        for cl in clusters:
+            allObjects.extend(cl.objects)
+
+        self.saveTSV(stars, allObjects, t)
+
+        if self.config.saveImages:
+            sameObjectsTSV = []
+
+            stars_image = np.zeros((self.config.SizeY, self.config.SizeX))
+            for s in stars:
+                sameObjectsTSV.append(self.drawObject(s, stars_image, self.config.Stars.method))
+
+            self.defectTool.addInitialDefects(stars_image)
+
+            images = []
+            allObjectsTSV = []
+            for i in range(self.config.numberOfFramesInOneSeries):
+                objectsTSV = []
+
+                image = stars_image.copy()
+
+                objectsTSV.extend(self.defectTool.addChangingDefects(image))
+
+                for obj in allObjects:
+                    method = self.config.Clusters.method if obj.isCluster else self.config.Objects.method
+
+                    objectsTSV.append(self.drawObject(obj, image, method))
+
+                    obj.x, obj.y = (obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][0],
+                                    obj.positions[(i + 1) % self.config.numberOfFramesInOneSeries][1])
+
+                images.append(image)
+                allObjectsTSV.append(objectsTSV)
+
+            sameObjectsTSV.extend(self.defectTool.addFinalDefects(images))
+
+            # TODO here I need to save TSV objects somehow
+
+            self.saveSeriesToFile(images, allObjects, t)
+
+            if self.config.plot:
+                self.plotSeries(images)
+
+    def drawObject(self, obj, image, method):
+        if method == 'line':
+            return self.drawingTool.drawLineGauss(obj, image)
+        elif method == 'gauss':
+            return self.drawingTool.drawStarGaus(obj, image)
+
+    def saveTSV(self, stars, objects, t):
+
+        directory = os.path.join(self.config.dataFile, f'tsv{t+random.random()}')
+        os.mkdir(directory)
+
+        for i in range(self.config.numberOfFramesInOneSeries):
+            data = [s.toTSV() for s in stars] + [o.toTSV(i) for o in objects]
+            if len(data) > 0:
+                df = pd.DataFrame(np.array(data), columns=["x", "y", "brightness", "fwhm", "is_object"])
+                df.to_csv(f"{directory}/data_{i + 1:04d}.tsv", index=False, sep='\t')
+
+        data = [[i] + o.toTSV(i) for o in objects for i in range(self.config.numberOfFramesInOneSeries)]
+        if len(data) > 0:
+            df = pd.DataFrame(np.array(data), columns=["image_number", "x", "y", "brightness", "fwhm", "is_object"])
+            df.to_csv(f"{directory}/objects.tsv", index=False)
+
+    def plotSeries(self, images):
+        imagesCount = len(images)
+        numberOfRows = imagesCount // 4
+        if imagesCount % 4 != 0:
+            numberOfRows += 1
+
+        fig, axs = plt.subplots(numberOfRows, 4)
+        for r in range(numberOfRows):
+            for c in range(4):
+                index = 4 * r + c
+                if index < len(images):
+                    self.utils.axis(r, c, axs).imshow(images[index], cmap='gray', vmin=0, vmax=50)
+                    self.utils.axis(r, c, axs).set_title(f'image {index}')
+                else:
+                    self.utils.axis(r, c, axs).set_axis_off()
+        plt.show()
+
+    def saveSeriesToFile(self, images, objects, t):
+        directory = os.path.join(self.config.dataFile, f'fits{t+random.random()}')
+        os.mkdir(directory)
+        for i in range(len(images)):
+            name = f'{directory}/{i}'
+            self.saveImgToFits(images[i], name)
+
+        with open(f'{directory}/objects.txt', 'w') as f:
+            for obj in objects:
+                print(' '.join(list(map(str, obj.positions))), file=f)
+
+    def getStars(self):
+        if self.config.Stars.realData.enabled:
+            return self.fileReader.computeStarsFromFile(self.config.Stars.realData.file)
+        else:
+            return self.generateStars()
+
+    def generateStars(self):
+        stars = [self.randomStar() for i in range(self.config.Stars.count.value())]
+        return stars
+
+    def generateObjects(self):
+        objects = []
+        if self.config.Objects.enable:
+            objects = [self.randomObject() for i in range(self.config.Objects.count.value())]
+
+        return objects
+
+    def generateClusters(self):
+        clusters = []
+        if self.config.Clusters.enable:
+            clusters = [self.generateOneCluster() for i in range(self.config.Clusters.count.value())]
+
+        return clusters
+
+    def randomStar(self):
+        x = rr(self.config.SizeX)
+        y = rr(self.config.SizeY)
+        brightness = self.config.Stars.brightness.value()
+        fwhm = self.config.Stars.fwhm.value()
+        length = self.config.Stars.length.value()
+        alpha = self.config.Stars.alpha.value()
+
+        return Star(x=x,
+                    y=y,
+                    brightness=brightness,
+                    fwhm=fwhm,
+                    length=length,
+                    alpha=alpha)
+
+    def randomObject(self):
+        brightness = self.config.Objects.brightness.value()
+        fwhm = self.config.Objects.fwhm.value()
+        length = self.config.Objects.length.value()
+        alpha = self.config.Objects.alpha.value()
+
+        speed = self.config.Objects.speed.value() / 100
+        points = self.generateObjectPoints(alpha, speed)
+
+        obj = Object(x=points[0][0],
+                     y=points[0][1],
+                     brightness=brightness,
+                     fwhm=fwhm,
+                     length=length,
+                     alpha=alpha,
+                     positions=points,
+                     isCluster=False)
+
+        return obj
+
+    def clusterObject(self, length, alpha, speed):
+        brightness = self.config.Objects.brightness.value()
+        fwhm = self.config.Objects.fwhm.value()
+        points = self.generateObjectPoints(alpha, speed)
+
+        obj = Object(x=points[0][0],
+                     y=points[0][1],
+                     brightness=brightness,
+                     fwhm=fwhm,
+                     length=length,
+                     alpha=alpha,
+                     positions=points,
+                     isCluster=True)
+
+        return obj
+
+    def generateObjectPoints(self, alpha, speed):
+        # convert degrees to radians
+        alphaRad = np.deg2rad(alpha)
+
+        # compute shift vector from angle (normalized)
+        shift = np.array([np.cos(alphaRad), np.sin(alphaRad)])
+
+        minDimension = np.min([self.config.SizeY, self.config.SizeX])
+
+        # compute total distance traveled
+        totalDistX, totalDistY = (minDimension * speed * shift[0],
+                                  minDimension * speed * shift[1])
+
+        stepX, stepY = (totalDistX / self.config.numberOfFramesInOneSeries,
+                        totalDistY / self.config.numberOfFramesInOneSeries)
+
+        # create bounding box limiting object's position so it doesnt leave image
+        boundingBox = self.utils.createBoundingBox(np.floor(totalDistX), np.floor(totalDistY))
+
+        startPoint = self.utils.randomPosition(boundingBox)
+        points = [(startPoint[0] + i * stepX, startPoint[1] + i * stepY) for i in
+                  range(self.config.numberOfFramesInOneSeries)]
+
+        return points
+
+    def generateOneCluster(self):
+        # in the cluster all objects have same speed,length,alpha
+
+        length = self.config.Clusters.length.value()
+        alpha = self.config.Clusters.alpha.value()
+        speed = self.config.Clusters.speed.value() / 100
+
+        clusterObjects = []
+        for i in range(self.config.Clusters.objectCountPerCluster.value()):
+            obj = self.clusterObject(length, alpha, speed)
+            clusterObjects.append(obj)
+
+        return Cluster(clusterObjects)
 
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
         fits.writeto(name, image.astype(np.float32), overwrite=True)
-
-    def flip(self, pos):
-        return pos[1], pos[0]
 
 
 class TrainingDataGenerator(StarGenerator):
