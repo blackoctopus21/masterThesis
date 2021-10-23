@@ -7,6 +7,8 @@ from random import randrange as rr
 import random
 import os
 import time
+import cv2
+from astropy.modeling.models import Sersic2D
 
 import configuration
 from tqdm import tqdm
@@ -21,13 +23,22 @@ class BoundingBox:
     minY: int
     maxY: int
 
+    def merge(self, boundingBox, sizeX, sizeY):
+        minX = self.minX + boundingBox.minX
+        maxX = sizeX - ((sizeX - self.maxX) + (sizeX - boundingBox.maxX))
+
+        minY = self.minY + boundingBox.minY
+        maxY = sizeY - ((sizeY - self.maxY) + (sizeY - boundingBox.maxY))
+
+        return BoundingBox(minX, maxX, minY, maxY)
+
 
 @dataclass
 class Star:
     x: int
     y: int
     brightness: int
-    fwhm: int
+    fwhm: float
     length: int
     alpha: int
 
@@ -36,11 +47,25 @@ class Star:
 
 
 @dataclass
+class Galaxy:
+    x: int
+    y: int
+    brightness: int
+    alpha: int
+    ellipticity: float
+    sersicIndex: float
+    radius: int
+
+    def toTSV(self):
+        return [self.x, self.y, self.brightness, 'undefined', 0]
+
+
+@dataclass
 class Object:
     x: int
     y: int
     brightness: int
-    fwhm: int
+    fwhm: float
     length: int
     alpha: int
     positions: list
@@ -69,7 +94,7 @@ class TSVObject:
 
     boundingBox: BoundingBox = None
 
-    def boundingBox(self):
+    def getBoundingBox(self):
         if self.boundingBox is None:
             minX = np.amin(self.pixelsX)
             maxX = np.amax(self.pixelsX)
@@ -91,6 +116,63 @@ class Utils:
 
     def __init__(self, config):
         self.config = config
+
+    def calcPosition(self, x, y, linePointA, linePointB):
+        x1 = linePointA[0]
+        y1 = linePointA[1]
+        x2 = linePointB[0]
+        y2 = linePointB[1]
+        return (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1)
+
+    def checkRight(self, x, y, linePointA, linePointB):
+        return self.calcPosition(x, y, linePointA, linePointB) >= 0
+
+    def checkLeft(self, x, y, linePointA, linePointB):
+        return self.calcPosition(x, y, linePointA, linePointB) <= 0
+
+    def clamp(self, point, max0, min0=0):
+        if point < min0:
+            return min0
+        elif point > max0:
+            return max0
+        return point
+
+    def getVectors(self, halfLengthA, halfLengthB, alpha):
+        vectorA = np.array([halfLengthA * np.cos(alpha), halfLengthA * np.sin(alpha)])
+        vectorB = np.array([halfLengthB * np.cos(alpha + np.pi / 2), halfLengthB * np.sin(alpha + np.pi / 2)])
+
+        return vectorA, vectorB
+
+    def getCorners(self, center, halfLengthA, halfLengthB, alpha):
+
+        # basic vectors of the box
+        vectorCenter = center
+        vectorA, vectorB = self.getVectors(halfLengthA, halfLengthB, alpha)
+
+        # four corners of the box
+        TL = vectorCenter - vectorA + vectorB
+        TR = vectorCenter + vectorA + vectorB
+        BL = vectorCenter - vectorA - vectorB
+        BR = vectorCenter + vectorA - vectorB
+
+        # define box pixel borders (four lines perpendicular to axes and passing through box four corners)
+        boxTop = np.floor(max(TL[1], TR[1], BL[1], BR[1]))
+        boxBottom = np.ceil(min(TL[1], TR[1], BL[1], BR[1]))
+        boxLeft = np.ceil(min(TL[0], TR[0], BL[0], BR[0]))
+        boxRight = np.floor(max(TL[0], TR[0], BL[0], BR[0]))
+
+        boxTop = int(self.clamp(boxTop, self.config.SizeY - 1))
+        boxBottom = int(self.clamp(boxBottom, self.config.SizeY - 1))
+        boxLeft = int(self.clamp(boxLeft, self.config.SizeX - 1))
+        boxRight = int(self.clamp(boxRight, self.config.SizeX - 1))
+
+        return {'top': boxTop, 'bottom': boxBottom, 'left': boxLeft, 'right': boxRight}
+
+    def projectPointOntoLine(self, point, linePointA, linePointB):
+        # project point P onto line given by points A and B
+        AP = point - linePointA
+        AB = linePointB - linePointA
+        return linePointA + (np.dot(AP, AB) / np.dot(AB, AB)) * AB
 
     def axis(self, r, c, axis):
         if axis.ndim > 1:
@@ -117,11 +199,34 @@ class Utils:
 
         return BoundingBox(minX, maxX, minY, maxY)
 
+    def createBoundingBoxForStreak(self, vectorA, vectorB):
+        x1 = np.abs(vectorA[0])
+        x2 = np.abs(vectorB[0])
+        y1 = np.abs(vectorA[1])
+        y2 = np.abs(vectorB[1])
+
+        x = np.floor(x1 + x2)
+        y = np.floor(y1 + y2)
+
+        minX, minY = x, y
+        maxX, maxY = self.config.SizeX - x, self.config.SizeY - y
+
+        return BoundingBox(minX, maxX, minY, maxY)
+
     def isWithinImage(self, pos):
         return 0 <= pos[0] < self.config.SizeX and 0 <= pos[1] < self.config.SizeY
 
     def flip(self, pos):
-        return pos[1],pos[0]
+        return pos[1], pos[0]
+
+    def sigma(self, fwhm):
+        return fwhm / 2.355
+
+    def getHalfLengths(self, sigma, length):
+        halfLengthA = length * sigma + 5 * sigma
+        halfLengthB = 5 * sigma
+
+        return halfLengthA, halfLengthB
 
 
 '''
@@ -260,6 +365,21 @@ class DrawingTool:
 
     def __init__(self, config):
         self.config = config
+        self.utils = Utils(config)
+
+    def drawSersic(self, galaxy, image):
+        sersic = Sersic2D(amplitude=galaxy.brightness,
+                          r_eff=galaxy.radius,
+                          n=galaxy.sersicIndex,
+                          x_0=galaxy.x,
+                          y_0=galaxy.y,
+                          ellip=galaxy.ellipticity,
+                          theta=np.deg2rad(galaxy.alpha))
+
+        x, y = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
+        img = sersic(x, y)
+
+        image += img
 
     def bigaus(self, x, y, k, sigma):
         return k * np.exp(-0.5 * (x ** 2 + y ** 2) / sigma)
@@ -270,7 +390,7 @@ class DrawingTool:
         pixelsX = []
         pixelsY = []
 
-        sigma = (star.fwhm / 2.355)
+        sigma = self.utils.sigma(star.fwhm)
         sigma2 = sigma ** 2
         k = 1 / 2 / np.pi / sigma2
         lim = np.ceil(5 * sigma)
@@ -292,57 +412,6 @@ class DrawingTool:
         return TSVObject(pixelsX, pixelsY, 'point')
 
     def drawLineGauss(self, star, image):
-        def calcPosition(x, y, linePointA, linePointB):
-            x1 = linePointA[0]
-            y1 = linePointA[1]
-            x2 = linePointB[0]
-            y2 = linePointB[1]
-            return (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1)
-
-        def checkRight(x, y, linePointA, linePointB):
-            return calcPosition(x, y, linePointA, linePointB) >= 0
-
-        def checkLeft(x, y, linePointA, linePointB):
-            return calcPosition(x, y, linePointA, linePointB) <= 0
-
-        def inRange(point, max0, min0=0):
-            if point < min0:
-                return min0
-            elif point > max0:
-                return max0
-            return point
-
-        def getCorners(center, halfLengthA, halfLengthB, alpha):
-
-            # basic vectors of the box
-            vectorCenter = center
-            vectorA = np.array([halfLengthA * np.cos(alpha), halfLengthA * np.sin(alpha)])
-            vectorB = np.array([halfLengthB * np.cos(alpha + np.pi / 2), halfLengthB * np.sin(alpha + np.pi / 2)])
-
-            # four corners of the box
-            TL = vectorCenter - vectorA + vectorB
-            TR = vectorCenter + vectorA + vectorB
-            BL = vectorCenter - vectorA - vectorB
-            BR = vectorCenter + vectorA - vectorB
-
-            # define box pixel borders (four lines perpendicular to axes and passing through box four corners)
-            boxTop = np.floor(max(TL[1], TR[1], BL[1], BR[1]))
-            boxBottom = np.ceil(min(TL[1], TR[1], BL[1], BR[1]))
-            boxLeft = np.ceil(min(TL[0], TR[0], BL[0], BR[0]))
-            boxRight = np.floor(max(TL[0], TR[0], BL[0], BR[0]))
-
-            boxTop = int(inRange(boxTop, self.config.SizeY - 1))
-            boxBottom = int(inRange(boxBottom, self.config.SizeY - 1))
-            boxLeft = int(inRange(boxLeft, self.config.SizeX - 1))
-            boxRight = int(inRange(boxRight, self.config.SizeX - 1))
-
-            return {'top': boxTop, 'bottom': boxBottom, 'left': boxLeft, 'right': boxRight}
-
-        def projectPointOntoLine(point, linePointA, linePointB):
-            # project point P onto line given by points A and B
-            AP = point - linePointA
-            AB = linePointB - linePointA
-            return linePointA + (np.dot(AP, AB) / np.dot(AB, AB)) * AB
 
         # for the purposes ob TSV object
         pixelsX = []
@@ -353,7 +422,7 @@ class DrawingTool:
 
         # streak variables
         length = star.length
-        sigma = (star.fwhm / 2.355)
+        sigma = self.utils.sigma(star.fwhm)
         alpha = star.alpha
         alphaRad = np.deg2rad(alpha)
 
@@ -365,10 +434,9 @@ class DrawingTool:
         leftP = center - shift
 
         # playground corners (it is a rotated box)
-        halfLengthA = length * sigma + 5 * sigma
-        halfLengthB = 5 * sigma
+        halfLengthA, halfLengthB = self.utils.getHalfLengths(sigma, length)
 
-        corners = getCorners(center, halfLengthA, halfLengthB, alphaRad)
+        corners = self.utils.getCorners(center, halfLengthA, halfLengthB, alphaRad)
 
         # rows/y coordinates (upy <= y <= dwy)
         upy = corners['bottom']
@@ -398,18 +466,18 @@ class DrawingTool:
 
         newImage = np.zeros_like(image)
         for y in range(upy, dwy + 1):
-            for x in range(upx, dwx+1):
+            for x in range(upx, dwx + 1):
                 # left of left line
-                if checkLeft(x, y, l1, l2):
+                if self.utils.checkLeft(x, y, l1, l2):
                     newImage[y, x] += self.bigaus(leftP[0] - x + 0.5, leftP[1] - y + 0.5, 1, sigma2)
                 # right of right line
-                elif checkRight(x, y, r1, r2):
+                elif self.utils.checkRight(x, y, r1, r2):
                     newImage[y, x] += self.bigaus(rightP[0] - x + 0.5, rightP[1] - y + 0.5, 1, sigma2)
                 else:
                     # this is the strechted zone
                     # project point on the centre line (given by points centre and centre + direction_vec)
                     point = np.array([x, y])
-                    projected = projectPointOntoLine(point, c1, c2)
+                    projected = self.utils.projectPointOntoLine(point, c1, c2)
                     newImage[y, x] += self.bigaus(center[0] - projected[0] + 0.5, center[1] - projected[1] + 0.5, 1,
                                                   sigma2)
 
@@ -480,7 +548,7 @@ class DefectDrawingTool:
     def addNoise(self, image):
         if self.config.Noise.enable:
             noise_image = np.abs(
-                self.config.Noise.std * np.random.randn(self.config.SizeX, self.config.SizeY) + self.config.Noise.mean)
+                self.config.Noise.std * np.random.randn(self.config.SizeY, self.config.SizeX) + self.config.Noise.mean)
             image += noise_image
 
     def addBias(self, image):
@@ -505,7 +573,7 @@ class DefectDrawingTool:
 
             image += bias_image
 
-    def addHotPixels(self, images):
+    def addHotPixels(self, images, single=False):
         objectsTSV = []
 
         if self.config.HotPixel.enable:
@@ -514,7 +582,8 @@ class DefectDrawingTool:
             # distributed. Random seed will be dependent on the image size
             count = self.config.HotPixel.count
 
-            randomSeed = self.config.SizeX * self.config.SizeY
+            randomSeed = self.config.HotPixel.getRandomSeed()
+            print(randomSeed)
             rng = np.random.RandomState(randomSeed)
 
             x = rng.randint(0, self.config.SizeX - 1, size=count)
@@ -555,7 +624,7 @@ class DefectDrawingTool:
 
         # compute center point
         lastPixel = self.utils.randomPosition()
-        image[lastPixel[::-1]] = self.config.CosmicRays.brightness.value()
+        newImage[self.utils.flip(lastPixel)] = self.config.CosmicRays.brightness.value()
 
         numberOfFilledPixels = 1
         while numberOfFilledPixels < pixelCount:
@@ -722,7 +791,6 @@ class TSVSaver:
         self.config = config
 
 
-
 class StarGenerator:
     config: configuration.Configuration
     fileReader: FileReader
@@ -737,9 +805,9 @@ class StarGenerator:
         self.defectTool = DefectDrawingTool(config)
         self.utils = Utils(config)
 
-    def generateOneSeriesFromFile(self):
+    def generateOneSeriesFromFile(self, seriesNumber):
 
-        t = int(time.time())
+        t = str(int(time.time())) + f'.{seriesNumber}'
 
         # read files from directory
         directory = self.config.realData.file
@@ -794,19 +862,21 @@ class StarGenerator:
             self.plotSeries(images)
 
     def generateSeries(self):
-        for _ in tqdm(range(self.config.numberOfSeries)):
+        for i in tqdm(range(self.config.numberOfSeries)):
             if self.config.realData.enabled:
-                self.generateOneSeriesFromFile()
+                self.generateOneSeriesFromFile(i)
             else:
-                self.generateOneSeries()
+                self.generateOneSeries(i)
 
-    def generateOneSeries(self):
+    def generateOneSeries(self, seriesNumber):
 
-        t = int(time.time())
+        t = str(int(time.time())) + f'.{seriesNumber}'
 
-        objects = self.generateObjects()
+        # TODO dat spat na normalne objekzty
+        objects = self.generateCleanObjects()
         stars = self.getStars()
         clusters = self.generateClusters()
+        galaxies = self.generateGalaxies()
 
         # converge all objects together
         allObjects = objects
@@ -821,6 +891,10 @@ class StarGenerator:
             stars_image = np.zeros((self.config.SizeY, self.config.SizeX))
             for s in stars:
                 sameObjectsTSV.append(self.drawObject(s, stars_image, self.config.Stars.method))
+
+            for g in galaxies:
+                # TODO add to TSV objects
+                self.drawingTool.drawSersic(g, stars_image)
 
             self.defectTool.addInitialDefects(stars_image)
 
@@ -861,7 +935,7 @@ class StarGenerator:
 
     def saveTSV(self, stars, objects, t):
 
-        directory = os.path.join(self.config.dataFile, f'tsv{t+random.random()}')
+        directory = os.path.join(self.config.dataFile, f'tsv{t}')
         os.mkdir(directory)
 
         for i in range(self.config.numberOfFramesInOneSeries):
@@ -893,11 +967,12 @@ class StarGenerator:
         plt.show()
 
     def saveSeriesToFile(self, images, objects, t):
-        directory = os.path.join(self.config.dataFile, f'fits{t+random.random()}')
+        directory = os.path.join(self.config.dataFile, f'fits{t}')
         os.mkdir(directory)
         for i in range(len(images)):
             name = f'{directory}/{i}'
             self.saveImgToFits(images[i], name)
+            # self.saveImgToPng(images[i], name)
 
         with open(f'{directory}/objects.txt', 'w') as f:
             for obj in objects:
@@ -920,6 +995,13 @@ class StarGenerator:
 
         return objects
 
+    def generateCleanObjects(self):
+        objects = []
+        if self.config.Objects.enable:
+            objects = [self.randomCleanObject() for i in range(self.config.Objects.count.value())]
+
+        return objects
+
     def generateClusters(self):
         clusters = []
         if self.config.Clusters.enable:
@@ -927,9 +1009,15 @@ class StarGenerator:
 
         return clusters
 
+    def generateGalaxies(self):
+        galaxies = []
+        if self.config.Galaxies.enable:
+            galaxies = [self.randomGalaxy() for i in range(self.config.Galaxies.count.value())]
+
+        return galaxies
+
     def randomStar(self):
-        x = rr(self.config.SizeX)
-        y = rr(self.config.SizeY)
+        x, y = self.utils.randomPosition()
         brightness = self.config.Stars.brightness.value()
         fwhm = self.config.Stars.fwhm.value()
         length = self.config.Stars.length.value()
@@ -942,6 +1030,31 @@ class StarGenerator:
                     length=length,
                     alpha=alpha)
 
+    def randomCleanObject(self):
+        brightness = self.config.Objects.brightness.value()
+        fwhm = self.config.Objects.fwhm.value()
+        length = self.config.Objects.length.value()
+        alpha = self.config.Objects.alpha.value()
+        alphaRad = np.deg2rad(alpha)
+
+        speed = self.config.Objects.speed.value() / 100
+
+        boundingBox = None
+        if self.config.Objects.method == 'line':
+            halfLengthA, halfLengthB = self.utils.getHalfLengths(self.utils.sigma(fwhm), length)
+            vectorA, vectorB = self.utils.getVectors(halfLengthA, halfLengthB, alphaRad)
+            boundingBox = self.utils.createBoundingBoxForStreak(vectorA, vectorB)
+
+        points = self.generateObjectPoints(alpha, speed, boundingBox)
+        return Object(x=points[0][0],
+                      y=points[0][1],
+                      brightness=brightness,
+                      fwhm=fwhm,
+                      length=length,
+                      alpha=alpha,
+                      positions=points,
+                      isCluster=False)
+
     def randomObject(self):
         brightness = self.config.Objects.brightness.value()
         fwhm = self.config.Objects.fwhm.value()
@@ -951,34 +1064,48 @@ class StarGenerator:
         speed = self.config.Objects.speed.value() / 100
         points = self.generateObjectPoints(alpha, speed)
 
-        obj = Object(x=points[0][0],
-                     y=points[0][1],
-                     brightness=brightness,
-                     fwhm=fwhm,
-                     length=length,
-                     alpha=alpha,
-                     positions=points,
-                     isCluster=False)
+        return Object(x=points[0][0],
+                      y=points[0][1],
+                      brightness=brightness,
+                      fwhm=fwhm,
+                      length=length,
+                      alpha=alpha,
+                      positions=points,
+                      isCluster=False)
 
-        return obj
+    def randomGalaxy(self):
+        x, y = self.utils.randomPosition()
+        brightness = self.config.Galaxies.brightness.value()
+        alpha = self.config.Galaxies.alpha.value()
+        ellipticity = self.config.Galaxies.ellipticity.value()
+        sersicIndex = self.config.Galaxies.sersicIndex.value()
+        radius = self.config.Galaxies.radius.value()
+
+        return Galaxy(
+            x=x,
+            y=y,
+            brightness=brightness,
+            alpha=alpha,
+            ellipticity=ellipticity,
+            sersicIndex=sersicIndex,
+            radius=radius
+        )
 
     def clusterObject(self, length, alpha, speed):
         brightness = self.config.Objects.brightness.value()
         fwhm = self.config.Objects.fwhm.value()
         points = self.generateObjectPoints(alpha, speed)
 
-        obj = Object(x=points[0][0],
-                     y=points[0][1],
-                     brightness=brightness,
-                     fwhm=fwhm,
-                     length=length,
-                     alpha=alpha,
-                     positions=points,
-                     isCluster=True)
+        return Object(x=points[0][0],
+                      y=points[0][1],
+                      brightness=brightness,
+                      fwhm=fwhm,
+                      length=length,
+                      alpha=alpha,
+                      positions=points,
+                      isCluster=True)
 
-        return obj
-
-    def generateObjectPoints(self, alpha, speed):
+    def generateObjectPoints(self, alpha, speed, lineBoundingBox=None):
         # convert degrees to radians
         alphaRad = np.deg2rad(alpha)
 
@@ -996,8 +1123,11 @@ class StarGenerator:
 
         # create bounding box limiting object's position so it doesnt leave image
         boundingBox = self.utils.createBoundingBox(np.floor(totalDistX), np.floor(totalDistY))
+        if lineBoundingBox is not None:
+            boundingBox = boundingBox.merge(lineBoundingBox, self.config.SizeX, self.config.SizeY)
 
-        startPoint = self.utils.randomPosition(boundingBox)
+        startPoint = np.array([self.config.SizeX/2,self.config.SizeY/2])
+        # self.utils.randomPosition(boundingBox)
         points = [(startPoint[0] + i * stepX, startPoint[1] + i * stepY) for i in
                   range(self.config.numberOfFramesInOneSeries)]
 
@@ -1020,6 +1150,10 @@ class StarGenerator:
     def saveImgToFits(self, image, name):
         name = f'{name}.fits'
         fits.writeto(name, image.astype(np.float32), overwrite=True)
+
+    def saveImgToPng(self, image, name):
+        name = f'{name}.png'
+        cv2.imwrite(name, image)
 
 
 class TrainingDataGenerator(StarGenerator):

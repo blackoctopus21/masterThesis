@@ -1,6 +1,9 @@
+from abc import abstractmethod
 from dataclasses import dataclass
 import random
 import yaml
+from abc import ABC
+
 
 @dataclass
 class DataFile:
@@ -12,20 +15,12 @@ class DataFile:
 
 
 @dataclass
-class Value:
-    min: int
-    max: int
+class Value(ABC):
     random: str
-    savedValue: int = None
+    savedValue = None
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-
-    def uniform(self):
-        return random.randrange(self.min, self.max + 1)
-
-    def normal(self):
-        return int(random.gauss(mu=(abs(self.min + self.max) / 2), sigma=(self.max - self.min)))
 
     def value(self):
         if self.random == 'uniform':
@@ -44,6 +39,38 @@ class Value:
                 self.savedValue = self.normal()
             return self.savedValue
 
+    @abstractmethod
+    def normal(self):
+        ...
+
+    @abstractmethod
+    def uniform(self):
+        ...
+
+
+@dataclass
+class FloatValue(Value):
+    min: float
+    max: float
+
+    def normal(self):
+        return random.gauss(mu=(abs(self.min + self.max) / 2), sigma=(self.max - self.min))
+
+    def uniform(self):
+        return random.uniform(self.min, self.max)
+
+
+@dataclass
+class IntValue(Value):
+    min: int
+    max: int
+
+    def uniform(self):
+        return random.randrange(self.min, self.max + 1)
+
+    def normal(self):
+        return int(random.gauss(mu=(abs(self.min + self.max) / 2), sigma=(self.max - self.min)))
+
 
 @dataclass
 class Noise:
@@ -57,66 +84,86 @@ class Noise:
 
 @dataclass
 class Stars:
-    count: Value
-    brightness: Value
-    fwhm: Value
+    count: IntValue
+    brightness: FloatValue
+    fwhm: FloatValue
     method: str
-    length: Value
-    alpha: Value
+    length: IntValue
+    alpha: IntValue
     realData: DataFile
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.count = Value(**self.count)
-        self.brightness = Value(**self.brightness)
-        self.fwhm = Value(**self.fwhm)
-        self.length = Value(**self.length)
-        self.alpha = Value(**self.alpha)
+        self.count = IntValue(**self.count)
+        self.brightness = FloatValue(**self.brightness)
+        self.fwhm = FloatValue(**self.fwhm)
+        self.length = IntValue(**self.length)
+        self.alpha = IntValue(**self.alpha)
         self.realData = DataFile(**self.realData)
 
 
 @dataclass
 class Objects:
-    count: Value
-    brightness: Value
-    fwhm: Value
-    speed: Value
+    count: IntValue
+    brightness: FloatValue
+    fwhm: FloatValue
+    speed: IntValue
     method: str
-    length: Value
-    alpha: Value
+    length: IntValue
+    alpha: IntValue
     enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.count = Value(**self.count)
-        self.brightness = Value(**self.brightness)
-        self.fwhm = Value(**self.fwhm)
-        self.speed = Value(**self.speed)
-        self.length = Value(**self.length)
-        self.alpha = Value(**self.alpha)
+        self.count = IntValue(**self.count)
+        self.brightness = FloatValue(**self.brightness)
+        self.fwhm = FloatValue(**self.fwhm)
+        self.speed = IntValue(**self.speed)
+        self.length = IntValue(**self.length)
+        self.alpha = IntValue(**self.alpha)
 
 
 @dataclass
 class Clusters:
-    count: Value
-    objectCountPerCluster: Value
-    brightness: Value
-    fwhm: Value
-    speed: Value
+    count: IntValue
+    objectCountPerCluster: IntValue
+    brightness: FloatValue
+    fwhm: FloatValue
+    speed: IntValue
     method: str
-    length: Value
-    alpha: Value
+    length: IntValue
+    alpha: IntValue
     enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.count = Value(**self.count)
-        self.objectCountPerCluster = Value(**self.objectCountPerCluster)
-        self.brightness = Value(**self.brightness)
-        self.fwhm = Value(**self.fwhm)
-        self.speed = Value(**self.speed)
-        self.length = Value(**self.length)
-        self.alpha = Value(**self.alpha)
+        self.count = IntValue(**self.count)
+        self.objectCountPerCluster = IntValue(**self.objectCountPerCluster)
+        self.brightness = FloatValue(**self.brightness)
+        self.fwhm = FloatValue(**self.fwhm)
+        self.speed = IntValue(**self.speed)
+        self.length = IntValue(**self.length)
+        self.alpha = IntValue(**self.alpha)
+
+
+@dataclass
+class Galaxies:
+    enable: bool
+    count: IntValue
+    brightness: FloatValue
+    alpha: IntValue
+    ellipticity: FloatValue
+    sersicIndex: FloatValue
+    radius: FloatValue
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+        self.count = IntValue(**self.count)
+        self.brightness = FloatValue(**self.brightness)
+        self.alpha = IntValue(**self.alpha)
+        self.ellipticity = FloatValue(**self.ellipticity)
+        self.sersicIndex = FloatValue(**self.sersicIndex)
+        self.radius = FloatValue(**self.radius)
 
 
 @dataclass
@@ -132,30 +179,36 @@ class Bias:
 @dataclass
 class HotPixel:
     count: int
-    brightness: Value
+    brightness: FloatValue
+    randomSeed: int
     enable: bool
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.brightness = Value(**self.brightness)
+        self.brightness = FloatValue(**self.brightness)
 
+    def getRandomSeed(self):
+        if self.randomSeed == 'random':
+            return random.randrange(0, 10000)
+
+        return self.randomSeed
 
 @dataclass
 class CosmicRays:
-    count: Value
-    brightness: Value
-    pixelCount: Value
-    spotPixelCount: Value
+    count: IntValue
+    brightness: FloatValue
+    pixelCount: IntValue
+    spotPixelCount: IntValue
     enable: bool
 
     cosmicTypes: list
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
-        self.count = Value(**self.count)
-        self.brightness = Value(**self.brightness)
-        self.pixelCount = Value(**self.pixelCount)
-        self.spotPixelCount = Value(**self.spotPixelCount)
+        self.count = IntValue(**self.count)
+        self.brightness = FloatValue(**self.brightness)
+        self.pixelCount = IntValue(**self.pixelCount)
+        self.spotPixelCount = IntValue(**self.spotPixelCount)
 
         self.cosmicTypes = ['spot', 'track', 'worm']
 
@@ -173,6 +226,7 @@ class Configuration:
     Stars: Stars
     Objects: Objects
     Clusters: Clusters
+    Galaxies: Galaxies
     Noise: Noise
     Bias: Bias
     HotPixel: HotPixel
@@ -184,6 +238,7 @@ class Configuration:
         self.Stars = Stars(**self.Stars)
         self.Objects = Objects(**self.Objects)
         self.Clusters = Clusters(**self.Clusters)
+        self.Galaxies = Galaxies(**self.Galaxies)
         self.Noise = Noise(**self.Noise)
         self.Bias = Bias(**self.Bias)
         self.HotPixel = HotPixel(**self.HotPixel)

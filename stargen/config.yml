@@ -3,19 +3,19 @@
 # stars will be drawn as streaks and their fwhm, length, alpha will be computed from the config
 # object will be drawn as a point and his fwhm will be computed from the config
 realData:
-  enabled: True
+  enabled: False
   file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24
 
 # number of generated series
-numberOfSeries: 1
+numberOfSeries: 10
 
 # number of frames in one series
 # if realData is enabled number of frames depends on the object file and this value is not used
 numberOfFramesInOneSeries: 5
 
 # dimensions of the image
-SizeX: 1024
-SizeY: 1024
+SizeX: 50
+SizeY: 50
 
 # destination where to save files
 dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  #
@@ -26,22 +26,23 @@ plot: False
 # indicates whether to save FITS images
 saveImages: True
 
+
 Stars:
   # indicates whether to use real data from the file
   # number of stars, their positions and brightness will be determined from the file
   # fwhm, length, alpha and drawing method will be computed using values in configuration
   realData:
-    enabled: True
+    enabled: False
     file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24\00040A_2_R-0001_m_s.tsv
 
   count:
-    min: 10
-    max: 30
+    min: 0
+    max: 0
     random: uniform
 
   brightness:
-    min: 1000
-    max: 10000
+    min: 10000
+    max: 50000
     random: uniform
 
   fwhm:
@@ -50,7 +51,7 @@ Stars:
     random: uniform
 
   # method: line/gauss
-  method: line
+  method: gauss
 
   # streak properties
   # applied only when method is line
@@ -73,20 +74,20 @@ Objects:
     random: uniform
 
   brightness:
-    min: 1000
-    max: 10000
+    min: 10000
+    max: 50000
     random: uniform
 
   fwhm:
-    min: 3
-    max: 3
+    min: 2
+    max: 2
     random: uniform
 
   # speed of object traveled % of the screen in one series
   # if frame is not a square, smallest dimension will be considered
   speed:
-    min: 30
-    max: 90
+    min: 10
+    max: 20
     random: uniform
 
   # determines the direction of the motion
@@ -96,13 +97,13 @@ Objects:
     random: uniform
 
   # method: line/gauss
-  method: gauss
+  method: line
 
   # streak properties
   # applied only when method is line
   length:
-    min: 5
-    max: 25
+    min: 15
+    max: 50
     random: uniform
 
 Clusters:
@@ -151,47 +152,88 @@ Clusters:
     max: 50
     random: uniform
 
-Noise:
-    mean: 10
-    std: 7
-    enable: True
+Galaxies:
+  enable: False
 
-Bias:
-    value: 20
-    columns: 25
-    enable: False
-
-HotPixel:
-    count: 15
-
-    brightness:
-      min: 5000
-      max: 10000
-      random: uniform
-
-    enable: True
-
-CosmicRays:
   count:
-    min: 10
+    min: 1
+    max: 5
+    random: uniform
+
+  # surface brightness at radius
+  brightness:
+    min: 50
     max: 50
     random: uniform
 
+  # rotation angle
+  alpha:
+    min: 0
+    max: 360
+    random: uniform
+
+  ellipticity:
+    min: 0.1
+    max: 0.4
+    random: uniform
+
+  sersicIndex:
+    min: 1
+    max: 1.5
+    random: uniform
+
+  # effective (half-light) radius
+  radius:
+    min: 5
+    max: 10
+    random: uniform
+
+
+Noise:
+  enable: True
+  mean: 100
+  std: 50
+
+Bias:
+  enable: False
+  value: 20
+  columns: 25
+
+HotPixel:
+  enable: True
+
+  count: 50
+
   brightness:
-    min: 1000
-    max: 5000
+    min: 5000
+    max: 10000
+    random: uniform
+
+  # if randomSeed is number, then this number will be used as 'random seed' to generate hot pixels
+  # if its random then 'random seed' will be generated randomly for each series (this is for purposes of training NN)
+  randomSeed: random
+
+CosmicRays:
+  enable: True
+
+  count:
+    min: 2
+    max: 10
+    random: uniform
+
+  brightness:
+    min: 10000
+    max: 50000
     random: uniform
 
   # pixel count for worms and tracks
   pixelCount:
     min: 10
-    max: 50
+    max: 40
     random: uniform
 
   # pixel count for spots
   spotPixelCount:
-    min: 1
+    min: 2
     max: 10
     random: uniform
-
-  enable: True
