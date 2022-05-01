@@ -1,3 +1,4 @@
+index: 1
 # indicates whether to read configuration of stars and object from file
 # number of stars, their positions and brightness wil be determined from the file
 # stars will be drawn as streaks and their fwhm, length, alpha will be computed from the config
@@ -7,25 +8,45 @@ realData:
   file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24
 
 # number of generated series
-numberOfSeries: 10
+numberOfSeries: 1
 
 # number of frames in one series
 # if realData is enabled number of frames depends on the object file and this value is not used
-numberOfFramesInOneSeries: 5
+numberOfFramesInOneSeries: 1
 
 # dimensions of the image
-SizeX: 50
-SizeY: 50
+SizeX: 1024
+SizeY: 1024
 
 # destination where to save files
-dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data # /media/daniel/Windows/Users/user/Dropbox/diplomovka/stargen/data  #
+dataFile: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data\paper
+#C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\data
+#C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\newNNdata\train\line
 
 # indicates whether to plot images
 plot: False
 
 # indicates whether to save FITS images
-saveImages: True
+saveFITSImages: True
 
+# indicates whether to save PNG images
+savePNGImages: False
+
+
+# indicates whether to save positions of stars, galaxies and objects to TSV file
+savePositions: False
+
+# indicates whether to save pixel data of stars, galaxies, objects, cosmic rays and hot pixels
+# pixel data includes number of pixels, total intensity, maximum intensity
+savePixelData: False
+
+# indicates whether to use Poisson distribution on generated points, lines and galaxies
+applyPoisson: True
+
+# indicates whether to save all images of all series into one file
+# mostly for the purposes of generating data for NN
+# if true all FITS images will be saved in FITS file of dataFile, and TSV files in TSV file of dataFile
+oneFileOnly: True
 
 Stars:
   # indicates whether to use real data from the file
@@ -36,19 +57,19 @@ Stars:
     file: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\realData\00040A_2_R_15-09-21_00..02..24\00040A_2_R-0001_m_s.tsv
 
   count:
-    min: 0
-    max: 0
+    min: 100
+    max: 120
     random: uniform
 
   brightness:
-    min: 10000
-    max: 50000
+    min: 1000
+    max: 2000
     random: uniform
 
   fwhm:
-    min: 2
-    max: 2
-    random: uniform
+    min: 3
+    max: 3.5
+    random: uniform*
 
   # method: line/gauss
   method: gauss
@@ -57,7 +78,7 @@ Stars:
   # applied only when method is line
   length:
     min: 5
-    max: 25
+    max: 8
     random: uniform*
 
   alpha:
@@ -69,31 +90,31 @@ Objects:
   enable: True
 
   count:
-    min: 1
-    max: 1
+    min: 3
+    max: 5
     random: uniform
 
   brightness:
-    min: 10000
-    max: 50000
+    min: 1000
+    max: 2000
     random: uniform
 
   fwhm:
-    min: 2
-    max: 2
+    min: 3
+    max: 4
     random: uniform
 
   # speed of object traveled % of the screen in one series
   # if frame is not a square, smallest dimension will be considered
   speed:
-    min: 10
-    max: 20
+    min: 0
+    max: 0
     random: uniform
 
   # determines the direction of the motion
   alpha:
     min: 0
-    max: 360
+    max: 180
     random: uniform
 
   # method: line/gauss
@@ -102,8 +123,8 @@ Objects:
   # streak properties
   # applied only when method is line
   length:
-    min: 15
-    max: 50
+    min: 3
+    max: 8
     random: uniform
 
 Clusters:
@@ -152,60 +173,91 @@ Clusters:
     max: 50
     random: uniform
 
+# galaxy is created as a sum of two Gaussian functions to imitate sharp peak (sharp Gauss) and diffuse edges (diffuse Gauss)
 Galaxies:
-  enable: False
+  enable: True
 
   count:
-    min: 1
-    max: 5
+    min: 2
+    max: 4
     random: uniform
 
-  # surface brightness at radius
+  # maximum brightness of sharp Gauss
   brightness:
-    min: 50
-    max: 50
+    min: 3000
+    max: 5000
     random: uniform
 
   # rotation angle
   alpha:
     min: 0
-    max: 360
+    max: 180
     random: uniform
 
-  ellipticity:
-    min: 0.1
-    max: 0.4
+  # sigma of the diffuseGauss on x axis
+  sigmaX:
+    min: 3.5
+    max: 5.5
     random: uniform
 
-  sersicIndex:
-    min: 1
-    max: 1.5
+  # sigma of the diffuseGauss on y axis
+  sigmaY:
+    min: 3.5
+    max: 5.5
     random: uniform
 
-  # effective (half-light) radius
-  radius:
-    min: 5
-    max: 10
+  # defines the fraction of brightness from maximum brightness used to create the diffuseGauss
+  # diffuseGauss.brightness  = brightnessFactor * sharpGauss.brightness
+  brightnessFactor:
+    min: 0.6
+    max: 0.6
     random: uniform
 
+  # defines the fraction of sigma from diffuseGauss to create the sharpGauss
+  # sharpGauss.sigmaX = sigmaFactor * diffuseGauss.sigmaX
+  # sharpGauss.sigmaY = sigmaFactor * diffuseGauss.sigmaY
+  sigmaFactor:
+    min: 0.3
+    max: 0.3
+    random: uniform
 
+# noise of the sky background
+# Gaussian noise
 Noise:
   enable: True
-  mean: 100
-  std: 50
+  mean: 200
+  std: 100
 
-Bias:
+# dark frames cut out to specific size to fit generated image
+# dark frame also contains bias frame !!!
+DarkFrame:
+  enable: True
+
+  # data directory which contains cut images for defined size of image
+  dataDir: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\masterFrames\dark\size1024\90s
+
+# flat frames cut out to specific size to fit generated image
+FlatFrame:
+  enable: True
+
+  # data directory which contains cut images for defined size of image
+  dataDir: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\masterFrames\flat\size1024
+
+# bias frames cut out to specific size to fit generated image
+# avoid using bias frame when using dark, as dark also contains bias values
+BiasFrame:
   enable: False
-  value: 20
-  columns: 25
+
+  # data directory which contains cut images for defined size of image
+  dataDir: C:\Users\Admin\OneDrive\SKOLA\DIPLOMOVKA\masterThesis\stargen\masterFrames\bias\size50
 
 HotPixel:
   enable: True
 
-  count: 50
+  count: 10
 
   brightness:
-    min: 5000
+    min: 2000
     max: 10000
     random: uniform
 
@@ -217,19 +269,19 @@ CosmicRays:
   enable: True
 
   count:
-    min: 2
+    min: 5
     max: 10
     random: uniform
 
   brightness:
-    min: 10000
-    max: 50000
+    min: 2000
+    max: 5000
     random: uniform
 
   # pixel count for worms and tracks
   pixelCount:
-    min: 10
-    max: 40
+    min: 5
+    max: 30
     random: uniform
 
   # pixel count for spots

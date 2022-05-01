@@ -18,11 +18,15 @@ class DataFile:
 class Value(ABC):
     random: str
     savedValue = None
+    fixedValue = None
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
     def value(self):
+        if self.fixedValue is not None:
+            return self.fixedValue
+
         if self.random == 'uniform':
             return self.uniform()
 
@@ -152,24 +156,42 @@ class Galaxies:
     count: IntValue
     brightness: FloatValue
     alpha: IntValue
-    ellipticity: FloatValue
-    sersicIndex: FloatValue
-    radius: FloatValue
+    sigmaX: FloatValue
+    sigmaY: FloatValue
+    brightnessFactor: FloatValue
+    sigmaFactor: FloatValue
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
         self.count = IntValue(**self.count)
         self.brightness = FloatValue(**self.brightness)
         self.alpha = IntValue(**self.alpha)
-        self.ellipticity = FloatValue(**self.ellipticity)
-        self.sersicIndex = FloatValue(**self.sersicIndex)
-        self.radius = FloatValue(**self.radius)
+        self.sigmaX = FloatValue(**self.sigmaX)
+        self.sigmaY = FloatValue(**self.sigmaY)
+        self.brightnessFactor = FloatValue(**self.brightnessFactor)
+        self.sigmaFactor = FloatValue(**self.sigmaFactor)
+
 
 
 @dataclass
-class Bias:
-    value: int
-    columns: int
+class BiasFrame:
+    dataDir: str
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+@dataclass
+class DarkFrame:
+    dataDir: str
+    enable: bool
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+@dataclass
+class FlatFrame:
+    dataDir: str
     enable: bool
 
     def __init__(self, **entries):
@@ -215,6 +237,7 @@ class CosmicRays:
 
 @dataclass
 class Configuration:
+    index: int
     realData: DataFile
     numberOfSeries: int
     numberOfFramesInOneSeries: int
@@ -222,13 +245,20 @@ class Configuration:
     SizeY: int
     dataFile: str
     plot: bool
-    saveImages: bool
+    saveFITSImages: bool
+    savePNGImages: bool
+    savePositions: bool
+    savePixelData: bool
+    applyPoisson: bool
+    oneFileOnly: bool
     Stars: Stars
     Objects: Objects
     Clusters: Clusters
     Galaxies: Galaxies
     Noise: Noise
-    Bias: Bias
+    BiasFrame: BiasFrame
+    DarkFrame: DarkFrame
+    FlatFrame: FlatFrame
     HotPixel: HotPixel
     CosmicRays: CosmicRays
 
@@ -240,7 +270,9 @@ class Configuration:
         self.Clusters = Clusters(**self.Clusters)
         self.Galaxies = Galaxies(**self.Galaxies)
         self.Noise = Noise(**self.Noise)
-        self.Bias = Bias(**self.Bias)
+        self.BiasFrame = BiasFrame(**self.BiasFrame)
+        self.DarkFrame = DarkFrame(**self.DarkFrame)
+        self.FlatFrame = FlatFrame(**self.FlatFrame)
         self.HotPixel = HotPixel(**self.HotPixel)
         self.CosmicRays = CosmicRays(**self.CosmicRays)
 
